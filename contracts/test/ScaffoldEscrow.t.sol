@@ -32,9 +32,13 @@ contract ScaffoldEscrowTest is Test {
     }
 
     function _init(uint256 budget, uint64 deadline, uint16 threshold) internal returns (bytes32 jobId) {
+        return _initNonce(1, budget, deadline, threshold);
+    }
+
+    function _initNonce(uint256 nonce, uint256 budget, uint64 deadline, uint16 threshold) internal returns (bytes32 jobId) {
         vm.startPrank(buyer);
         usdc.approve(address(esc), type(uint256).max);
-        jobId = esc.initialize(1, worker, arbiter, IERC20(address(usdc)), budget, deadline, threshold, 9, weights, specHash);
+        jobId = esc.initialize(nonce, worker, arbiter, IERC20(address(usdc)), budget, deadline, threshold, 9, weights, specHash);
         esc.deposit(jobId);
         vm.stopPrank();
     }
@@ -100,6 +104,81 @@ contract ScaffoldEscrowTest is Test {
         vm.prank(buyer);
         esc.refundBuyer(jobId);
         assertEq(usdc.balanceOf(buyer) - before, 100e6);
+        (, , , , , uint256 workerPaid, uint256 buyerRefunded, , , , , , bool finalized, ) = esc.getJob(jobId);
+        assertEq(workerPaid, 0);
+        assertEq(buyerRefunded, 100e6);
+        assertTrue(finalized);
+    }
+
+    function testRefundedJobCannotResumeOrSpendAnotherJobsCollateral() public {
+        bytes32 refundedJob = _initNonce(1, 100e6, uint64(block.timestamp + 1 days), 8000);
+        bytes32 fundedJob = _initNonce(2, 100e6, uint64(block.timestamp + 1 days), 8000);
+
+        vm.prank(arbiter);
+        esc.setPause(refundedJob, true);
+        vm.prank(buyer);
+        esc.refundBuyer(refundedJob);
+        assertEq(usdc.balanceOf(address(esc)), 100e6, "other job remains funded");
+
+        vm.startPrank(arbiter);
+        vm.expectRevert(ScaffoldEscrow.FinalizedJob.selector);
+        esc.setPause(refundedJob, false);
+        vm.expectRevert(ScaffoldEscrow.FinalizedJob.selector);
+        esc.releaseStreamed(refundedJob, 0, weights[0]);
+        vm.stopPrank();
+        assertEq(usdc.balanceOf(address(esc)), 100e6);
+        assertTrue(fundedJob != refundedJob);
+    }
+
+    function testRepeatedRefundAndFinalizeCannotPayTwice() public {
+        bytes32 jobId = _init(100e6, uint64(block.timestamp + 1 days), 8000);
+        vm.prank(arbiter);
+        esc.setPause(jobId, true);
+        vm.prank(buyer);
+        esc.refundBuyer(jobId);
+        vm.expectRevert(ScaffoldEscrow.FinalizedJob.selector);
+        vm.prank(buyer);
+        esc.refundBuyer(jobId);
+        vm.expectRevert(ScaffoldEscrow.FinalizedJob.selector);
+        esc.finalizeJob(jobId);
+    }
+
+    function testReleaseRoundingDoesNotDependOnUpdatePath() public {
+        bytes32 oneStep = _initNonce(1, 101, uint64(block.timestamp + 1 days), 8000);
+        bytes32 manySteps = _initNonce(2, 101, uint64(block.timestamp + 1 days), 8000);
+        vm.startPrank(arbiter);
+        esc.releaseStreamed(oneStep, 0, 1000);
+        for (uint16 bps = 100; bps <= 1000; bps += 100) {
+            esc.releaseStreamed(manySteps, 0, bps);
+        }
+        vm.stopPrank();
+        (, , , , , uint256 onePaid, , , , , , , , ) = esc.getJob(oneStep);
+        (, , , , , uint256 manyPaid, , , , , , , , ) = esc.getJob(manySteps);
+        assertEq(onePaid, 10);
+        assertEq(manyPaid, onePaid);
+    }
+
+    function testDeadlineBoundaryAllowsRefund() public {
+        uint64 deadline = uint64(block.timestamp + 1 days);
+        bytes32 jobId = _init(100e6, deadline, 8000);
+        vm.warp(deadline);
+        vm.prank(buyer);
+        esc.refundBuyer(jobId);
+    }
+
+    function testFuzzOutflowNeverExceedsBudget(uint16 first, uint16 second) public {
+        first = uint16(bound(first, 1, weights[0]));
+        second = uint16(bound(second, first, weights[0]));
+        bytes32 jobId = _init(100e6, uint64(block.timestamp + 1 days), 8000);
+        vm.startPrank(arbiter);
+        esc.releaseStreamed(jobId, 0, first);
+        if (second > first) esc.releaseStreamed(jobId, 0, second);
+        esc.setPause(jobId, true);
+        vm.stopPrank();
+        vm.prank(buyer);
+        esc.refundBuyer(jobId);
+        (, , , , uint256 budget, uint256 workerPaid, uint256 buyerRefunded, , , , , , , ) = esc.getJob(jobId);
+        assertEq(workerPaid + buyerRefunded, budget);
     }
 
     function testWeightsMustSumTo10000() public {

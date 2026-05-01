@@ -22,7 +22,8 @@ contract ScaffoldEscrow {
         address arbiter;
         IERC20 token; // USDC on Base
         uint256 budget;
-        uint256 released;
+        uint256 workerPaid;
+        uint256 buyerRefunded;
         uint64 deadline; // unix seconds
         uint16 qualityThresholdBps;
         uint8 checkpointCount;
@@ -32,6 +33,7 @@ contract ScaffoldEscrow {
         bytes32 specHash; // SHA-256 of the off-chain spec JSON
         uint16[MAX_CHECKPOINTS] weights; // sum to 10_000
         uint16[MAX_CHECKPOINTS] bpsReleasedPerCp;
+        uint16 totalProgressBps;
     }
 
     /// @dev Job id is keccak256(buyer, nonce). Buyer-scoped nonces are managed
@@ -75,6 +77,7 @@ contract ScaffoldEscrow {
     error NotRefundable();
     error DeadlineNotReached();
     error ZeroBudget();
+    error BadToken();
 
     function jobIdFor(address buyer, uint256 nonce) public pure returns (bytes32) {
         return keccak256(abi.encodePacked(buyer, nonce));
@@ -130,8 +133,10 @@ contract ScaffoldEscrow {
         if (j.finalized) revert FinalizedJob();
         if (msg.sender != j.buyer) revert NotArbiter(); // reuse error: signer check
 
+        uint256 beforeBalance = j.token.balanceOf(address(this));
         j.deposited = true;
         j.token.safeTransferFrom(msg.sender, address(this), j.budget);
+        if (j.token.balanceOf(address(this)) - beforeBalance != j.budget) revert BadToken();
         emit Deposited(jobId, j.budget);
     }
 
@@ -140,8 +145,8 @@ contract ScaffoldEscrow {
         Job storage j = _mustJob(jobId);
         if (msg.sender != j.arbiter) revert NotArbiter();
         if (!j.deposited) revert NotFunded();
-        if (j.paused) revert PausedJob();
         if (j.finalized) revert FinalizedJob();
+        if (j.paused) revert PausedJob();
         if (checkpointIndex >= j.checkpointCount) revert BadCheckpointIndex();
 
         uint16 weight = j.weights[checkpointIndex];
@@ -149,11 +154,12 @@ contract ScaffoldEscrow {
         uint16 target = scoreBps > weight ? weight : scoreBps;
         if (target <= already) revert NoForwardProgress();
 
-        uint256 deltaBps = uint256(target - already);
-        uint256 amount = (j.budget * deltaBps) / BPS_DENOM;
-
+        uint16 deltaBps = target - already;
         j.bpsReleasedPerCp[checkpointIndex] = target;
-        j.released += amount;
+        j.totalProgressBps += deltaBps;
+        uint256 earnedToDate = (j.budget * j.totalProgressBps) / BPS_DENOM;
+        uint256 amount = earnedToDate - j.workerPaid;
+        j.workerPaid = earnedToDate;
         j.token.safeTransfer(j.worker, amount);
 
         emit ReleaseStreamed(jobId, checkpointIndex, already, target, amount);
@@ -175,17 +181,12 @@ contract ScaffoldEscrow {
         if (j.finalized) revert FinalizedJob();
         if (!j.paused && block.timestamp < j.deadline) revert NotRefundable();
 
-        uint256 remaining = j.token.balanceOf(address(this));
-        // Balance may include other jobs' collateral; we transfer up to this job's
-        // unspent budget only.
-        uint256 available;
-        unchecked {
-            available = j.budget - j.released;
-        }
-        uint256 amount = remaining < available ? remaining : available;
+        uint256 amount = j.budget - j.workerPaid - j.buyerRefunded;
+        j.finalized = true;
+        j.paused = true;
         if (amount > 0) {
+            j.buyerRefunded = amount;
             j.token.safeTransfer(j.buyer, amount);
-            j.released += amount; // mark as drained
             emit Refunded(jobId, amount);
         }
     }
@@ -196,28 +197,20 @@ contract ScaffoldEscrow {
         if (!j.deposited) revert NotFunded();
         if (j.finalized) revert FinalizedJob();
 
-        uint32 totalBps;
-        for (uint256 i = 0; i < j.checkpointCount; ++i) {
-            totalBps += uint32(j.bpsReleasedPerCp[i]);
-        }
+        uint16 totalBps = j.totalProgressBps;
         bool fullyScored = totalBps == BPS_DENOM;
         if (!fullyScored && block.timestamp < j.deadline) revert DeadlineNotReached();
 
-        bool paysWorker = uint16(totalBps) >= j.qualityThresholdBps;
+        bool paysWorker = totalBps >= j.qualityThresholdBps;
 
-        uint256 unspent;
-        unchecked {
-            unspent = j.budget - j.released;
-        }
-        uint256 surplus = unspent;
+        uint256 surplus = j.budget - j.workerPaid - j.buyerRefunded;
+        j.finalized = true;
         if (surplus > 0) {
             address dest = paysWorker ? j.worker : j.buyer;
+            if (paysWorker) j.workerPaid += surplus;
+            else j.buyerRefunded += surplus;
             j.token.safeTransfer(dest, surplus);
-            if (paysWorker) {
-                j.released += surplus;
-            }
         }
-        j.finalized = true;
         emit Finalized(jobId, paysWorker, surplus);
     }
 
@@ -232,7 +225,8 @@ contract ScaffoldEscrow {
             address arbiter,
             address token,
             uint256 budget,
-            uint256 released,
+            uint256 workerPaid,
+            uint256 buyerRefunded,
             uint64 deadline,
             uint16 qualityThresholdBps,
             uint8 checkpointCount,
@@ -250,7 +244,8 @@ contract ScaffoldEscrow {
             j.arbiter,
             address(j.token),
             j.budget,
-            j.released,
+            j.workerPaid,
+            j.buyerRefunded,
             j.deadline,
             j.qualityThresholdBps,
             j.checkpointCount,
