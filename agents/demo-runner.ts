@@ -8,9 +8,10 @@
  *   Final — anyone cranks finalizeJob; surplus routes by quality threshold
  */
 import 'dotenv/config';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { encodeFunctionData, keccak256, parseUnits, toBytes, type Abi, type Address, type Hex } from 'viem';
+import { encodeFunctionData, parseUnits, type Abi, type Address, type Hex } from 'viem';
 
 import { ERC20_ABI } from '../src/chain/abi.js';
 import {
@@ -20,10 +21,11 @@ import {
   getUsdcAddress,
   jobIdFor,
 } from './lib/chain.js';
+import { specHash, type ScaffoldSpec, type VerificationKind } from '../src/domain/protocol.js';
 
 type Spec = {
   title: string;
-  checkpoints: Array<{ id: string; weight_bps: number }>;
+  checkpoints: Array<{ id: string; title: string; weight_bps: number; rubric: string; verifier_type?: string; verification?: VerificationKind }>;
 };
 
 async function main() {
@@ -41,19 +43,32 @@ async function main() {
 
   const escrow = getEscrowAddress();
   const usdc = getUsdcAddress();
-  const spec: Spec = JSON.parse(readFileSync(specPath, 'utf8'));
+  const template: Spec = JSON.parse(readFileSync(specPath, 'utf8'));
 
   const weights = new Array<number>(16).fill(0);
-  for (let i = 0; i < spec.checkpoints.length; i++) {
-    weights[i] = spec.checkpoints[i].weight_bps;
+  for (let i = 0; i < template.checkpoints.length; i++) {
+    weights[i] = template.checkpoints[i].weight_bps;
   }
   const sum = weights.reduce((a, b) => a + b, 0);
   if (sum !== 10_000) throw new Error(`Spec weights sum to ${sum}, expected 10000`);
 
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 6 * 3600);
-  const specHash = keccak256(toBytes(JSON.stringify(spec))) as Hex;
   const budget = parseUnits(budgetUsdc, 6);
   const jobId = jobIdFor(buyerCtx.account.address, nonce);
+  const spec: ScaffoldSpec = {
+    version: 'scaffold-spec-v1', title: template.title, chain_id: buyerCtx.pub.chain!.id,
+    escrow, buyer: buyerCtx.account.address, worker, arbiter: arbiterCtx.account.address, token: usdc,
+    budget: budget.toString(), deadline: deadline.toString(), quality_threshold_bps: 8000,
+    checkpoints: template.checkpoints.map((checkpoint) => ({
+      id: checkpoint.id, title: checkpoint.title, weight_bps: checkpoint.weight_bps, rubric: checkpoint.rubric,
+      verification: checkpoint.verification ?? (checkpoint.verifier_type === 'claude-rubric' ? 'opinion' : 'measured'),
+    })),
+  };
+  const committedSpecHash = specHash(spec);
+  const committedSpecPath = process.env.COMMITTED_SPEC ?? 'agents/output/spec.committed.json';
+  mkdirSync(dirname(committedSpecPath), { recursive: true });
+  writeFileSync(committedSpecPath, `${JSON.stringify(spec, null, 2)}\n`);
+  console.log(`[demo] committed spec ${committedSpecPath} hash=${committedSpecHash}`);
 
   console.log(`[demo] jobId=${jobId} nonce=${nonce}`);
   console.log(`[demo] buyer=${buyerCtx.account.address} worker=${worker} arbiter=${arbiterCtx.account.address}`);
@@ -98,11 +113,11 @@ async function main() {
     const job = await buyerCtx.pub.readContract({
       address: escrow, abi: SCAFFOLD_ESCROW_ABI,
       functionName: 'getJob', args: [activeJobId],
-    }) as readonly [Address, Address, Address, Address, bigint, bigint, bigint, number, number, boolean, boolean, boolean, Hex];
-    if (!job[9]) throw new Error('Resumed job is not deposited');
-    if (job[11]) throw new Error('Resumed job is already finalized');
+    }) as readonly [Address, Address, Address, Address, bigint, bigint, bigint, bigint, number, number, boolean, boolean, boolean, Hex];
+    if (!job[10]) throw new Error('Resumed job is not deposited');
+    if (job[12]) throw new Error('Resumed job is already finalized');
     activeWeights = new Array<number>(16).fill(0);
-    for (let i = 0; i < job[8]; i++) {
+    for (let i = 0; i < job[9]; i++) {
       const [w] = await buyerCtx.pub.readContract({
         address: escrow, abi: SCAFFOLD_ESCROW_ABI,
         functionName: 'getCheckpointProgress', args: [activeJobId, i],
@@ -119,7 +134,7 @@ async function main() {
         nonce, worker, arbiterCtx.account.address, usdc, budget, deadline, 8000,
         spec.checkpoints.length,
         weights as unknown as readonly [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number],
-        specHash,
+        committedSpecHash,
       ],
       chain: buyerCtx.pub.chain, account: buyerCtx.account,
     });
@@ -183,7 +198,7 @@ async function main() {
     address: escrow, abi: SCAFFOLD_ESCROW_ABI,
     functionName: 'getJob', args: [activeJobId],
   });
-  console.log(`[demo] done · released=${Number(job[5]) / 1_000_000} USDC, finalized=${job[11]}`);
+  console.log(`[demo] done · workerPaid=${Number(job[5]) / 1_000_000} USDC, buyerRefunded=${Number(job[6]) / 1_000_000} USDC, finalized=${job[12]}`);
 }
 
 main().catch((e) => {

@@ -12,11 +12,7 @@ import { readFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { wrapFetchWithPayment } from 'x402-fetch';
 import { buildClients, loadPrivateKey } from './lib/chain.js';
-
-type Spec = {
-  title: string;
-  checkpoints: Array<{ id: string; title: string; weight_bps: number; rubric: string }>;
-};
+import { artifactHash, specHash, submissionMessage, validateSpec, type ScaffoldSpec, type SubmissionAuthorization } from '../src/domain/protocol.js';
 
 async function main() {
   const required = ['VERIFIER_URL', 'WORKER_PRIVATE_KEY', 'ARTIFACT', 'JOB_ID'];
@@ -31,12 +27,12 @@ async function main() {
   const jobId = process.env.JOB_ID! as `0x${string}`;
 
   // Build a viem wallet client for x402 to sign payment authorizations with.
-  const { wal: walletClient } = buildClients('WORKER_PRIVATE_KEY');
+  const { wal: walletClient, account } = buildClients('WORKER_PRIVATE_KEY');
   loadPrivateKey('WORKER_PRIVATE_KEY'); // sanity
 
   const fetchWithPayment = wrapFetchWithPayment(fetch, walletClient as unknown as Parameters<typeof wrapFetchWithPayment>[1]);
 
-  const spec: Spec = JSON.parse(readFileSync(specPath, 'utf8'));
+  const spec: ScaffoldSpec = validateSpec(JSON.parse(readFileSync(specPath, 'utf8')));
 
   // Inspect pricing first — economic reasoning surface.
   const pricingResp = await fetch(new URL('/pricing', verifierUrl).toString());
@@ -48,18 +44,29 @@ async function main() {
   for (;;) {
     const artifact = readFileSync(artifactPath, 'utf8');
     try {
+      const hash = artifactHash(artifact);
+      const authorization: SubmissionAuthorization = {
+        version: 'scaffold-submission-v1',
+        submission_id: `artifact:${jobId.slice(2, 14)}:${hash.slice(2, 34)}`,
+        job_id: jobId,
+        spec_hash: specHash(spec),
+        artifact_hash: hash,
+        chain_id: spec.chain_id,
+        escrow: spec.escrow,
+      };
+      const signature = await account.signMessage({ message: submissionMessage(authorization) });
       const resp = await fetchWithPayment(new URL('/score', verifierUrl).toString(), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ spec, artifact, job_id: jobId }),
+        body: JSON.stringify({ spec, artifact, authorization, signature }),
       });
       if (!resp.ok) {
         console.warn(`[client] /score ${resp.status} ${await resp.text()}`);
       } else {
         const data = await resp.json();
-        console.log(`[client] scored ${data.results?.length ?? 0} checkpoints; settlement_txs=${(data.settlement_txs ?? []).length}`);
-        for (const r of data.results ?? []) {
-          console.log(`  · ${r.checkpoint_id}: ${r.score_bps} bps — ${String(r.evidence).slice(0, 80)}`);
+        console.log(`[client] state=${data.state}; scored ${data.scores?.length ?? 0} checkpoints; transactions=${(data.transactions ?? []).length}`);
+        for (const r of data.scores ?? []) {
+          console.log(`  · ${r.checkpoint_id}: quality=${r.quality_bps}, progress=${r.weighted_progress_bps} bps (${r.evidence_type}) — ${String(r.evidence).slice(0, 80)}`);
         }
       }
     } catch (e) {
