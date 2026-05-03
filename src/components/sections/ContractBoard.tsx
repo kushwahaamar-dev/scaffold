@@ -24,7 +24,7 @@ export function ContractBoard({ contract, settlement, live }: ContractBoardProps
         </div>
         <div className="ledger-grid">
           <Metric label="Locked" value={formatCurrency(settlement.lockedAmount)} />
-          <Metric label="Refundable" value={formatCurrency(settlement.refundableAmount)} />
+          <Metric label={live ? 'Refunded' : 'Refundable'} value={formatCurrency(settlement.refundableAmount)} />
           <Metric label="Verified weight" value={`${settlement.verifiedWeight}%`} />
         </div>
         <div className="progress-block">

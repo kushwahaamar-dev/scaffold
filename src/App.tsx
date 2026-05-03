@@ -24,7 +24,7 @@ export default function App() {
   const contract = useMemo<ScaffoldContract>(() => deriveContract(session), [session]);
   const settlement = evaluateContract(contract);
   const live = session !== null;
-  const statusLabel = settlement.status === 'paused' ? 'Payment paused' : 'Streaming';
+  const statusLabel = settlement.status === 'streaming' ? 'Streaming' : settlement.status[0].toUpperCase() + settlement.status.slice(1);
   const chainLabel = chainId === 8453 ? 'Base' : 'Base Sepolia';
 
   const scrollToEscrow = () => {
@@ -84,12 +84,17 @@ function deriveContract(session: EscrowSession): ScaffoldContract {
 
   const usdcDec = 6;
   const budgetUi = Number(formatUnits(session.budget, usdcDec));
-  const releasedUi = Number(formatUnits(session.released, usdcDec));
+  const workerPaidUi = Number(formatUnits(session.workerPaid, usdcDec));
+  const buyerRefundedUi = Number(formatUnits(session.buyerRefunded, usdcDec));
   const count = session.checkpointCount;
   const bps = session.bpsReleasedPerCp;
   const weights = session.weights;
 
-  const chainCheckpoints = base.checkpoints.slice(0, count).map((cp, idx) => {
+  const chainCheckpoints = Array.from({ length: count }, (_, idx) => {
+    const cp = base.checkpoints[idx] ?? {
+      id: `checkpoint-${idx + 1}`, title: `Checkpoint ${idx + 1}`, weight: 0,
+      state: 'pending' as CheckpointState, evidence: 'No off-chain evidence loaded.', verifier: 'on-chain',
+    };
     const weight = weights[idx] ?? 0;
     const releasedBps = bps[idx] ?? 0;
     const fraction = weight === 0 ? 0 : releasedBps / weight;
@@ -99,8 +104,8 @@ function deriveContract(session: EscrowSession): ScaffoldContract {
     if (session.paused) {
       return {
         ...cp,
-        state: 'failed' as CheckpointState,
-        evidence: 'Stream paused by arbiter — verifier rejected latest artifact.',
+        state: 'pending' as CheckpointState,
+        evidence: 'Job paused on chain. No verifier conclusion is recorded here.',
       };
     }
     return { ...cp, state: 'pending' as CheckpointState };
@@ -111,10 +116,16 @@ function deriveContract(session: EscrowSession): ScaffoldContract {
     budget: budgetUi,
     streamCap: budgetUi,
     checkpoints: chainCheckpoints,
+    onChainSettlement: {
+      status: !session.deposited ? 'unfunded' : session.finalized ? (session.buyerRefunded > 0n ? 'refunded' : 'finalized') : session.paused ? 'paused' : 'active',
+      workerPaid: workerPaidUi,
+      buyerRefunded: buyerRefundedUi,
+      remaining: Math.max(0, budgetUi - workerPaidUi - buyerRefundedUi),
+    },
     auditTrail: [
       {
         at: new Date().toISOString(),
-        summary: `Chain state: released ${releasedUi} USDC, ${
+        summary: `Chain state: worker paid ${workerPaidUi} USDC, buyer refunded ${buyerRefundedUi} USDC, ${
           session.paused ? 'paused' : session.finalized ? 'finalized' : 'active'
         }.`,
       },

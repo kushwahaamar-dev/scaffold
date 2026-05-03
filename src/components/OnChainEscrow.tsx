@@ -10,6 +10,7 @@ import {
   useWriteContract,
 } from 'wagmi';
 import { parseUnits, formatUnits, keccak256, toBytes, type Address, type Hex } from 'viem';
+import specTemplate from '../../agents/spec.example.json';
 
 import { ERC20_ABI, SCAFFOLD_ESCROW_ABI } from '../chain/abi';
 import { escrowAddress, explorerAddressUrl, explorerTxUrl, usdcAddress } from '../chain/config';
@@ -18,6 +19,7 @@ import {
   getDemoCheckpointCount,
   getDemoCheckpointWeightsBasisPoints,
 } from '../domain/scaffold';
+import { specHash as hashSpec, type ScaffoldSpec } from '../domain/protocol';
 
 export type EscrowSession = {
   jobId: Hex;
@@ -25,7 +27,8 @@ export type EscrowSession = {
   worker: Address;
   arbiter: Address;
   budget: bigint;
-  released: bigint;
+  workerPaid: bigint;
+  buyerRefunded: bigint;
   deadline: bigint;
   qualityThresholdBps: number;
   checkpointCount: number;
@@ -105,16 +108,16 @@ export function OnChainEscrow({ onSession }: Props = {}) {
   const session = useMemo<EscrowSession>(() => {
     if (!jobRead.data || !jobId) return null;
     const [
-      buyer, worker, arbiter, _token, budget, released,
+      buyer, worker, arbiter, _token, budget, workerPaid, buyerRefunded,
       deadline, threshold, count, deposited, paused, finalized, specHash,
     ] = jobRead.data as readonly [
-      Address, Address, Address, Address, bigint, bigint,
+      Address, Address, Address, Address, bigint, bigint, bigint,
       bigint, number, number, boolean, boolean, boolean, Hex,
     ];
     return {
       jobId,
       buyer, worker, arbiter,
-      budget, released,
+      budget, workerPaid, buyerRefunded,
       deadline,
       qualityThresholdBps: Number(threshold),
       checkpointCount: Number(count),
@@ -129,6 +132,7 @@ export function OnChainEscrow({ onSession }: Props = {}) {
   // Fetch per-checkpoint progress when the job exists. Polls every 4s so the
   // recording shows live updates as releaseStreamed events land.
   const [progress, setProgress] = useState<number[]>([]);
+  const [chainWeights, setChainWeights] = useState<number[]>([]);
   useEffect(() => {
     if (!escrowAddr || !jobId || !session || !publicClient) return;
     let cancelled = false;
@@ -145,6 +149,7 @@ export function OnChainEscrow({ onSession }: Props = {}) {
           ),
         );
         if (!cancelled) {
+          setChainWeights(cps.map((c) => Number(c[0])));
           setProgress(cps.map((c) => Number(c[1])));
         }
       } catch {
@@ -163,8 +168,8 @@ export function OnChainEscrow({ onSession }: Props = {}) {
       onSession(null);
       return;
     }
-    onSession({ ...session, bpsReleasedPerCp: progress });
-  }, [onSession, session, progress]);
+    onSession({ ...session, weights: chainWeights, bpsReleasedPerCp: progress });
+  }, [onSession, session, chainWeights, progress]);
 
   const waitForTx = useWaitForTransactionReceipt({ hash: lastTx ?? undefined, query: { enabled: !!lastTx } });
 
@@ -195,10 +200,16 @@ export function OnChainEscrow({ onSession }: Props = {}) {
     const budget = parseUnits(budgetUsdc, USDC_DECIMALS);
     const deadline = BigInt(Math.floor(Date.now() / 1000) + Math.max(60, Math.round(Number(deadlineHours) * 3600)));
     const threshold = Math.max(0, Math.min(10000, Math.round(Number(thresholdPct) * 100)));
-    const specBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify({
-      worker, arbiter, weights: demoWeights, deadline: deadline.toString(), threshold,
-    })));
-    const specHash = ('0x' + Array.from(new Uint8Array(specBuf)).map((b) => b.toString(16).padStart(2, '0')).join('')) as Hex;
+    const committedSpec: ScaffoldSpec = {
+      version: 'scaffold-spec-v1', title: specTemplate.title, chain_id: chainId, escrow: escrowAddr,
+      buyer: account.address, worker, arbiter, token: usdcAddr, budget: budget.toString(), deadline: deadline.toString(),
+      quality_threshold_bps: threshold,
+      checkpoints: specTemplate.checkpoints.map((checkpoint) => ({
+        id: checkpoint.id, title: checkpoint.title, weight_bps: checkpoint.weight_bps,
+        rubric: checkpoint.rubric, verification: checkpoint.verification as 'measured' | 'opinion',
+      })),
+    };
+    const committedSpecHash = hashSpec(committedSpec);
     const weights = [...demoWeights] as unknown as readonly [
       number, number, number, number, number, number, number, number,
       number, number, number, number, number, number, number, number,
@@ -207,7 +218,7 @@ export function OnChainEscrow({ onSession }: Props = {}) {
       address: escrowAddr,
       abi: SCAFFOLD_ESCROW_ABI,
       functionName: 'initialize',
-      args: [BigInt(nonce), worker, arbiter, usdcAddr, budget, deadline, threshold, demoCpCount, weights, specHash],
+      args: [BigInt(nonce), worker, arbiter, usdcAddr, budget, deadline, threshold, demoCpCount, weights, committedSpecHash],
     });
   });
 
@@ -344,7 +355,8 @@ export function OnChainEscrow({ onSession }: Props = {}) {
               <li><span>Paused</span><strong>{session.paused ? 'yes' : 'no'}</strong></li>
               <li><span>Finalized</span><strong>{session.finalized ? 'yes' : 'no'}</strong></li>
               <li><span>Budget</span><strong>{formatUnits(session.budget, USDC_DECIMALS)} USDC</strong></li>
-              <li><span>Released</span><strong>{formatUnits(session.released, USDC_DECIMALS)} USDC</strong></li>
+              <li><span>Worker paid</span><strong>{formatUnits(session.workerPaid, USDC_DECIMALS)} USDC</strong></li>
+              <li><span>Buyer refunded</span><strong>{formatUnits(session.buyerRefunded, USDC_DECIMALS)} USDC</strong></li>
               <li><span>Worker</span><strong className="mono">{session.worker.slice(0, 8)}…</strong></li>
               <li><span>Arbiter</span><strong className="mono">{session.arbiter.slice(0, 8)}…</strong></li>
               <li><span>Deadline</span><strong>{new Date(Number(session.deadline) * 1000).toLocaleString()}</strong></li>
@@ -366,8 +378,8 @@ export function OnChainEscrow({ onSession }: Props = {}) {
         <div className="chain-card chain-card--wide">
           <h3 className="chain-card-title">3 · Score checkpoints (arbiter wallet)</h3>
           <p className="chain-muted">
-            Submit a per-checkpoint score in basis points (0–10000). Each call streams the delta versus prior score
-            for that checkpoint as USDC. Repeated calls with rising scores accumulate up to the checkpoint weight ceiling.
+            Submit checkpoint-weighted progress in basis points. The verifier converts normalized quality into this value.
+            Repeated calls with rising progress accumulate up to the checkpoint weight ceiling.
           </p>
           <div className="release-grid">
             {demoTitles.map((title, idx) => {

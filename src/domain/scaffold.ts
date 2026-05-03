@@ -1,5 +1,5 @@
 export type CheckpointState = 'pending' | 'running' | 'passed' | 'failed';
-export type SettlementStatus = 'streaming' | 'paused';
+export type SettlementStatus = 'streaming' | 'unfunded' | 'active' | 'paused' | 'refunded' | 'finalized';
 
 export interface ScaffoldCheckpoint {
   id: string;
@@ -18,9 +18,15 @@ export interface ScaffoldContract {
   budget: number;
   streamCap: number;
   currency: 'USDC';
-  network: 'solana-devnet';
+  network: 'base-sepolia';
   checkpoints: ScaffoldCheckpoint[];
   auditTrail: ScaffoldAuditEvent[];
+  onChainSettlement?: {
+    status: Exclude<SettlementStatus, 'streaming'>;
+    workerPaid: number;
+    buyerRefunded: number;
+    remaining: number;
+  };
 }
 
 export interface ScaffoldAuditEvent {
@@ -154,12 +160,12 @@ export function createDemoContract(): ScaffoldContract {
     budget: 1500,
     streamCap: 900,
     currency: 'USDC',
-    network: 'solana-devnet',
+    network: 'base-sepolia',
     checkpoints: DEMO_CHECKPOINTS.map((checkpoint) => ({ ...checkpoint })),
     auditTrail: [
       {
         at: '2026-05-06T18:30:00.000Z',
-        summary: 'Contract funded on Solana devnet escrow boundary.',
+        summary: 'Sample contract funded on a Base Sepolia escrow boundary.',
       },
     ],
   };
@@ -191,6 +197,23 @@ export function evaluateContract(contract: ScaffoldContract): ScaffoldSettlement
 
   if (!integrity.ok) {
     throw new Error(`Invalid Scaffold contract: ${integrity.errors.join(' ')}`);
+  }
+
+  if (contract.onChainSettlement) {
+    const verifiedWeight = roundMoney(contract.checkpoints.reduce(
+      (total, checkpoint) => total + (checkpoint.state === 'passed' ? checkpoint.weight : 0), 0,
+    ));
+    const terminal = contract.onChainSettlement.status === 'refunded' || contract.onChainSettlement.status === 'finalized';
+    return {
+      status: contract.onChainSettlement.status,
+      releasedAmount: contract.onChainSettlement.workerPaid,
+      lockedAmount: contract.onChainSettlement.remaining,
+      refundableAmount: contract.onChainSettlement.buyerRefunded,
+      verifiedWeight,
+      failedCheckpoints: [],
+      nextAction: terminal ? 'Job is terminal' : 'Await the next authorized verification',
+      auditTrail: contract.auditTrail,
+    };
   }
 
   const verifiedWeight = contract.checkpoints.reduce(
