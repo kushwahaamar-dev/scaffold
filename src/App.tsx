@@ -78,7 +78,7 @@ export default function App() {
   );
 }
 
-function deriveContract(session: EscrowSession): ScaffoldContract {
+export function deriveContract(session: EscrowSession): ScaffoldContract {
   const base = createDemoContract();
   if (!session) return base;
 
@@ -99,16 +99,17 @@ function deriveContract(session: EscrowSession): ScaffoldContract {
     const releasedBps = bps[idx] ?? 0;
     const fraction = weight === 0 ? 0 : releasedBps / weight;
     const tail = `${(releasedBps / 100).toFixed(2)}% released by arbiter ${session.arbiter.slice(0, 8)}…`;
-    if (fraction >= 1) return { ...cp, state: 'passed' as CheckpointState, evidence: tail };
-    if (fraction > 0) return { ...cp, state: 'running' as CheckpointState, evidence: `Streaming · ${tail}` };
+    if (fraction >= 1) return { ...cp, weight: weight / 100, state: 'passed' as CheckpointState, evidence: tail };
+    if (fraction > 0) return { ...cp, weight: weight / 100, state: 'running' as CheckpointState, evidence: `Streaming · ${tail}` };
     if (session.paused) {
       return {
         ...cp,
+        weight: weight / 100,
         state: 'pending' as CheckpointState,
         evidence: 'Job paused on chain. No verifier conclusion is recorded here.',
       };
     }
-    return { ...cp, state: 'pending' as CheckpointState };
+    return { ...cp, weight: weight / 100, state: 'pending' as CheckpointState };
   });
 
   return {
