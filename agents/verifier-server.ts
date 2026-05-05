@@ -216,7 +216,7 @@ export const handler = (event: unknown, context: unknown) => {
   return lambdaApp(event, context);
 };
 
-if (process.env.NODE_ENV !== 'test' && (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('verifier-server.ts'))) {
+if (process.env.NODE_ENV !== 'test' && process.argv[1]?.endsWith('verifier-server.ts')) {
   const port = Number(process.env.PORT ?? 4021);
   buildApp().listen(port, () => console.log(`[verifier] listening on :${port} · network=${pickNetwork()}`));
 }
