@@ -170,7 +170,9 @@ export async function processScoreRequest(body: ScoreRequestBody, deps: Required
   if (!claim.created) {
     if (record.job_id !== initial.job_id || record.spec_hash !== initial.spec_hash || record.artifact_hash !== initial.artifact_hash) throw new Error('submission_id replayed with different content');
     if (record.state === 'confirmed') return record;
-    if (!record.scores && Date.now() - Date.parse(record.updated_at) < 60_000) throw new Error('submission is already being evaluated');
+    if ((record.state === 'evaluating' || record.state === 'settling') && Date.now() - Date.parse(record.updated_at) < 60_000) {
+      throw new Error('submission is already being evaluated or settled');
+    }
   }
   if (!record.scores) {
     record.scores = await deps.model(spec, body.artifact);
@@ -204,7 +206,7 @@ export function buildApp(overrides: VerifierDeps = {}): express.Express {
       res.status(code).json(record);
     } catch (error) {
       const message = (error as Error).message;
-      res.status(/already being evaluated/.test(message) ? 409 : 400).json({ error: message });
+      res.status(/already being evaluated or settled/.test(message) ? 409 : 400).json({ error: message });
     }
   });
   return app;

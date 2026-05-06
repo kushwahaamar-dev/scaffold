@@ -158,6 +158,16 @@ contract ScaffoldEscrowTest is Test {
         assertEq(manyPaid, onePaid);
     }
 
+    function testTinyBudgetCanAccumulateZeroValueProgress() public {
+        bytes32 jobId = _init(1, uint64(block.timestamp + 1 days), 8000);
+        vm.startPrank(arbiter);
+        esc.releaseStreamed(jobId, 0, 1);
+        esc.releaseStreamed(jobId, 0, weights[0]);
+        vm.stopPrank();
+        (, , , , , uint256 workerPaid, , , , , , , , ) = esc.getJob(jobId);
+        assertEq(workerPaid, 0);
+    }
+
     function testDeadlineBoundaryAllowsRefund() public {
         uint64 deadline = uint64(block.timestamp + 1 days);
         bytes32 jobId = _init(100e6, deadline, 8000);

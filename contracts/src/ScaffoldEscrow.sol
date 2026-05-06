@@ -160,7 +160,7 @@ contract ScaffoldEscrow {
         uint256 earnedToDate = (j.budget * j.totalProgressBps) / BPS_DENOM;
         uint256 amount = earnedToDate - j.workerPaid;
         j.workerPaid = earnedToDate;
-        j.token.safeTransfer(j.worker, amount);
+        if (amount > 0) j.token.safeTransfer(j.worker, amount);
 
         emit ReleaseStreamed(jobId, checkpointIndex, already, target, amount);
     }

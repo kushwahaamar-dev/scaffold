@@ -87,6 +87,21 @@ describe('paid verifier integration (mocked model and chain)', () => {
     expect(mock.writes()).toBe(1);
   });
 
+  it('rejects a concurrent duplicate while the first evaluation holds the submission lease', async () => {
+    const spec = makeSpec();
+    const store = new MemoryAuditStore();
+    const mock = mockChain(spec);
+    const body = await signedBody(spec, 'repaired', 'submission-concurrent');
+    let releaseModel!: () => void;
+    const gate = new Promise<void>((resolve) => { releaseModel = resolve; });
+    const first = processScoreRequest(body, { store, chain: mock.chain, model: async () => { await gate; return result(10000); } });
+    while (!(await store.get('submission-concurrent'))) await Promise.resolve();
+    await expect(processScoreRequest(body, { store, chain: mock.chain, model: async () => result(10000) })).rejects.toThrow(/already being evaluated or settled/);
+    releaseModel();
+    await expect(first).resolves.toMatchObject({ state: 'confirmed' });
+    expect(mock.writes()).toBe(1);
+  });
+
   it('rejects changed specs, artifacts, and cross-job replay before payout', async () => {
     const spec = makeSpec();
     const store = new MemoryAuditStore();
