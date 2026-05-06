@@ -1,0 +1,71 @@
+{
+  "title": "Consensus launch page",
+  "buyer": "Aster Labs",
+  "worker": "Claude landing-page agent",
+  "currency": "USDC",
+  "checkpoints": [
+    {
+      "id": "spec",
+      "title": "Structured spec locked",
+      "weight_bps": 1000,
+      "verifier_type": "claude-rubric",
+      "rubric": "Spec JSON exists, declares >=8 checkpoints with rubrics, and weights sum to 10000."
+    },
+    {
+      "id": "copy",
+      "title": "Hero copy matches rubric",
+      "weight_bps": 800,
+      "verifier_type": "claude-rubric",
+      "rubric": "Hero contains a one-line headline, a benefit-led subhead, and a clear CTA. Reading-grade <= 9."
+    },
+    {
+      "id": "responsive",
+      "title": "Responsive layout",
+      "weight_bps": 800,
+      "verifier_type": "claude-rubric",
+      "rubric": "HTML uses semantic landmarks (header/main/section). At least one viewport-aware CSS rule (media query OR fluid units)."
+    },
+    {
+      "id": "links",
+      "title": "No broken links",
+      "weight_bps": 600,
+      "verifier_type": "claude-rubric",
+      "rubric": "Every <a href> resolves to a non-empty fragment, mailto, or absolute URL. No href='#' placeholders."
+    },
+    {
+      "id": "performance",
+      "title": "Performance budget",
+      "weight_bps": 2167,
+      "verifier_type": "claude-rubric",
+      "rubric": "Total HTML payload under 50KB. No <script src> over 100KB. No render-blocking @import in CSS."
+    },
+    {
+      "id": "deploy",
+      "title": "Preview deployment",
+      "weight_bps": 633,
+      "verifier_type": "claude-rubric",
+      "rubric": "HTML declares <!doctype html> and a <title> tag. Otherwise the preview cannot be hosted."
+    },
+    {
+      "id": "handoff",
+      "title": "Handoff bundle",
+      "weight_bps": 1000,
+      "verifier_type": "claude-rubric",
+      "rubric": "Document includes a meta description and an Open Graph title for handoff into other channels."
+    },
+    {
+      "id": "audit",
+      "title": "Final audit",
+      "weight_bps": 500,
+      "verifier_type": "claude-rubric",
+      "rubric": "No inline event handlers (onclick=, onload=). No <script> with eval()."
+    },
+    {
+      "id": "agent-repair-loop",
+      "title": "Agent repair loop",
+      "weight_bps": 2500,
+      "verifier_type": "claude-rubric",
+      "rubric": "Page is internally consistent end-to-end: every CTA points somewhere meaningful and every section delivers on the headline promise."
+    }
+  ]
+}

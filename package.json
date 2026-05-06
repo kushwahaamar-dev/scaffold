@@ -1,0 +1,50 @@
+{
+  "name": "sonsensus-scaffold",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "anchor:build": "mkdir -p target/deploy && cp programs/scaffold_escrow/scaffold_escrow-keypair.json target/deploy/scaffold_escrow-keypair.json && anchor build",
+    "anchor:sync-types": "cp target/idl/scaffold_escrow.json src/idl/scaffold_escrow.json && cp target/types/scaffold_escrow.ts src/idl/scaffold_escrow.types.ts",
+    "agent:worker": "tsx agents/worker.ts",
+    "agent:verifier": "tsx agents/verifier.ts",
+    "agent:demo": "tsx agents/demo-runner.ts",
+    "typecheck": "tsc --noEmit",
+    "typecheck:agents": "tsc --noEmit -p tsconfig.agents.json",
+    "lint": "tsc --noEmit && tsc --noEmit -p tsconfig.agents.json"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.95.0",
+    "@coral-xyz/anchor": "^0.31.1",
+    "@solana/spl-token": "^0.4.13",
+    "@solana/wallet-adapter-base": "^0.9.27",
+    "@solana/wallet-adapter-phantom": "^0.9.29",
+    "@solana/wallet-adapter-react": "^0.15.39",
+    "@solana/wallet-adapter-react-ui": "^0.9.39",
+    "@solana/wallet-adapter-solflare": "^0.6.33",
+    "@solana/web3.js": "^1.98.4",
+    "bn.js": "^5.2.2",
+    "buffer": "^6.0.3"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "latest",
+    "@testing-library/react": "latest",
+    "@testing-library/user-event": "latest",
+    "@types/bn.js": "^5.2.0",
+    "@types/node": "^25.6.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "dotenv": "^17.4.2",
+    "jsdom": "latest",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.10",
+    "vitest": "latest"
+  }
+}

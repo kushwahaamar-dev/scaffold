@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.firecrawl/
+target/
+.env
+.env.local
+.env.*.local
+agents/output/
+.DS_Store

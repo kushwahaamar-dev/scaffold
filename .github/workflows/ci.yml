@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  frontend:
+    name: frontend + agents typecheck + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  program:
+    name: anchor build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v2.1.5/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Install Anchor
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor --tag v0.31.1 anchor-cli --locked
+      - name: Build program
+        run: |
+          mkdir -p target/deploy
+          cp programs/scaffold_escrow/scaffold_escrow-keypair.json target/deploy/scaffold_escrow-keypair.json
+          anchor build
+      - name: Verify IDL is committed in sync
+        run: |
+          diff -q target/idl/scaffold_escrow.json src/idl/scaffold_escrow.json
+          diff -q target/types/scaffold_escrow.ts src/idl/scaffold_escrow.types.ts
