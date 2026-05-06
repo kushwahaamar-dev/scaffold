@@ -1,0 +1,11 @@
+{
+  "app": "npx tsx bin/scaffold.ts",
+  "watch": {
+    "include": ["**"],
+    "exclude": ["README.md", "cdk*.json", "**/*.d.ts", "**/*.js", "tsconfig.json", "package*.json", "yarn.lock", "node_modules"]
+  },
+  "context": {
+    "@aws-cdk/aws-lambda-nodejs:useLatestRuntimeVersion": true,
+    "@aws-cdk/core:newStyleStackSynthesis": true
+  }
+}

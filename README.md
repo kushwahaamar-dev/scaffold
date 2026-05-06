@@ -1,434 +1,262 @@
 # Scaffold
 
-> **Stripe for verified work.** A Solana-native payment protocol for AI-agent (and human) freelance work. Spec is the contract, per-checkpoint score in basis points is the release authorization, and a permissionless `finalize_job` routes the surplus by an on-chain quality threshold. Reputation is the USDC a worker has earned — sitting in a wallet, unforgeable.
+> **Stripe for verified work.** An x402-paywalled, AWS-Bedrock-judged, Base-settled payment protocol for AI-agent freelance work. Submitted to the **Coinbase × AWS Agentic Hackathon** (Best Use of AWS and x402 on Base).
 
 [![ci](https://github.com/kushwahaamar-dev/scaffold/actions/workflows/ci.yml/badge.svg)](https://github.com/kushwahaamar-dev/scaffold/actions/workflows/ci.yml)
 
----
-
-## Table of contents
-
-- [Why](#why)
-- [How it works](#how-it-works)
-- [Architecture](#architecture)
-- [On-chain instructions](#on-chain-instructions)
-- [Account layout](#account-layout)
-- [Repo layout](#repo-layout)
-- [Setup](#setup)
-- [Run the demo](#run-the-demo)
-- [Front-end behavior](#front-end-behavior)
-- [Agents](#agents)
-- [Tests + CI](#tests--ci)
-- [Security model](#security-model)
-- [Roadmap](#roadmap)
-- [License](#license)
-
----
-
-## Why
-
-Today, freelance payments are binary and human-mediated:
-
-- Pay upfront → buyer takes the risk of ghosting.
-- Pay on delivery → seller takes the risk of non-payment or scope creep.
-- Platforms (Upwork, Fiverr, Contra) patch this with escrow and **human dispute resolution**: slow, biased, expensive (~20% take rate), and structurally unable to handle **AI-agent counterparties** because there's no human to call.
-
-Two things became simultaneously true in 2025 and are the reason this protocol can exist now:
-
-1. **Streaming USDC micropayments are practical** on Solana (sub-second finality, ~$0.0001 fees, x402-style signed receipts).
-2. **Deterministic spec verification is practical** with Gemini's structured-output function calling (a model returns scores in a typed schema, never free text).
-
-Scaffold combines them. Payment becomes a **continuous function of verified progress**, computed by a non-human judge with a locked rubric, settled on-chain.
-
----
-
-## How it works
-
 ```
-buyer ─► initialize_escrow ─► deposit ─► release_streamed (× N: idx, score_bps)
-                                                  ▲
-                                                  │ Gemini verifier
-                                                  │ scores artifact every TICK_MS
-                                                  │ submit_scores tool call → release_streamed
-                                                  ▼
-                          finalize_job (anyone cranks)
-                          ├── total_bps ≥ quality_threshold_bps → vault remainder → worker
-                          └── otherwise                          → vault remainder → buyer
+┌────────────┐    POST /score (HTTP 402)            ┌──────────────────┐
+│ Worker     │ ───────────────────────────────────► │ x402 paywall     │
+│ agent      │ ◄── price: $0.001 USDC, network: base│ (CloudFront +    │
+│ (Bedrock)  │                                       │  API Gateway)    │
+│            │ ─── retry with X-PAYMENT header ────► │                  │
+└────────────┘                                       └────────┬─────────┘
+                                                              │
+                                                              ▼
+                                                    ┌─────────────────┐
+                                                    │ Lambda          │
+                                                    │  · Bedrock      │
+                                                    │    invokeModel  │
+                                                    │  · DynamoDB     │
+                                                    │    audit log    │
+                                                    │  · viem         │
+                                                    │    releaseStreamed│
+                                                    └────────┬────────┘
+                                                              │
+                                                              ▼
+                                                    ┌─────────────────┐
+                                                    │ ScaffoldEscrow  │
+                                                    │   on Base       │
+                                                    │   (USDC)        │
+                                                    └─────────────────┘
 ```
 
-The whole loop is on-chain plus one off-chain process (the verifier) whose authority is bounded to a single Ed25519 signer. There is no admin, no platform multi-sig, no human escalation path.
+The **buyer** funds an escrow on Base. The **worker** produces an artifact (Bedrock-generated). The **verifier API** is paywalled with x402 — every score request costs USDC, settled by the x402 Facilitator on Base. Inside the Lambda, Bedrock returns a structured score per checkpoint; the same Lambda (acting as arbiter) calls `releaseStreamed` on Base, paying the worker the **delta** since the last score. After the deadline OR when fully scored, **anyone** can crank `finalizeJob`, which routes the surplus to the worker if the quality threshold was hit, or back to the buyer otherwise. Reputation = lifetime released USDC, indexed off `ReleaseStreamed` events.
 
-### Streaming-style release, not binary
+## Hitting the judging criteria
 
-Every checkpoint has a `weight_bps` (basis points, 0–10000) and a running `bps_released_per_cp[i]` (0..=weight). When the verifier posts `release_streamed(idx, score_bps)`:
+| Criterion                                                  | Where it's evidenced                                                                                                                                                              |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Effective use of x402**                                  | `agents/verifier-server.ts` — `x402-express` middleware, `/pricing` discovery endpoint, x402 facilitator URL configurable. `agents/verifier-client.ts` — `x402-fetch` worker.    |
+| **Effective use of AWS**                                   | `agents/lib/bedrock.ts` (Bedrock Converse API + tool use); `infra/lib/scaffold-stack.ts` (CDK: Lambda + API Gateway + CloudFront + DynamoDB + IAM scoping).                       |
+| **Innovation + real-world relevance**                      | A non-trivial composable primitive: any agent marketplace can mount this verifier API. No "hello world" — the contract has 8 passing Foundry tests covering streaming + finalize. |
+| **Reusability + developer enablement**                     | The verifier API is a black-box service. The agent toolkit (`agents/lib/`) is reusable. The Solidity contract is independently usable. CDK template ships ready to deploy.        |
+| **Economic reasoning for agents**                          | `/pricing` is the surface where workers compare cost vs. quality. `verifier-client.ts` reads pricing before paying — extension point for choosing Nova Lite vs. Pro by budget.    |
+| **Effective use of Kiro**                                  | `.kiro/specs/scaffold.md` is the durable architecture spec. The README's *Demo script* section walks the judge through the Kiro commands used to scaffold, test, and deploy.       |
 
-```
-target = min(score_bps, weight)
-require!(target > already_released)        // forward-progress only
-amount  = budget * (target − already) / 10_000
-transfer(vault → worker_ata, amount)
-bps_released_per_cp[idx] = target
-```
-
-So the verifier can call repeatedly with rising scores. A checkpoint goes from 30% → 60% → 90% → 100% across multiple ticks; each call streams the **delta**. Funds never go backwards.
-
-### Surplus routing on finalize
-
-After the deadline OR all checkpoints are fully scored, **anyone** can crank `finalize_job`. The instruction reads:
+## Repository layout
 
 ```
-total_bps = sum(bps_released_per_cp[..checkpoint_count])
-if total_bps ≥ quality_threshold_bps:
-    vault.remainder → worker_ata          // quality bonus
-else:
-    vault.remainder → buyer_ata           // refund
-finalized = true
+scaffold/
+├── contracts/                    Foundry — Solidity escrow on Base
+│   ├── src/ScaffoldEscrow.sol         score-scaled streaming USDC
+│   ├── test/ScaffoldEscrow.t.sol      8 tests, all pass
+│   ├── script/Deploy.s.sol            forge script for Base Sepolia / mainnet
+│   └── foundry.toml
+├── src/                          Vite + React 19 + wagmi + RainbowKit
+│   ├── chain/{config,abi}.ts
+│   ├── components/{OnChainEscrow,Leaderboard}.tsx
+│   ├── domain/scaffold.ts             pure-TS spec engine + tests
+│   ├── wallet/AppProviders.tsx        wagmi + RainbowKit
+│   └── App.{tsx,test.tsx}
+├── agents/                       Off-chain Node + Bedrock + x402
+│   ├── lib/bedrock.ts                 single-tool forced-call helper
+│   ├── lib/chain.ts                   viem clients, jobIdFor, ABI re-export
+│   ├── lib/scaffold-abi.ts            pruned ABI mirror
+│   ├── spec.example.json              9-checkpoint rubric, weights = 10000 bps
+│   ├── worker.ts                      Bedrock generates the HTML artifact
+│   ├── verifier-server.ts             Express + x402-express + Bedrock + viem
+│   ├── verifier-client.ts             worker side; x402-fetch + Bedrock pricing reasoning
+│   └── demo-runner.ts                 deterministic 3-act on-chain run
+├── infra/                        AWS CDK
+│   ├── bin/scaffold.ts
+│   ├── lib/scaffold-stack.ts          Lambda + API GW + CloudFront + DynamoDB
+│   └── package.json
+├── .kiro/specs/scaffold.md       Kiro-readable architecture spec
+├── legacy/solana/                Original Solana/Anchor implementation, kept for reference
+└── .github/workflows/ci.yml
 ```
-
-Reputation = the worker's lifetime `released` USDC across all of their escrow accounts. Indexed via `getProgramAccounts`, sortable by anyone.
-
----
-
-## Architecture
-
-| Layer        | Tech                                  | Lives in                           |
-| ------------ | ------------------------------------- | ---------------------------------- |
-| Settlement   | Anchor 0.31 program on Solana         | `programs/scaffold_escrow/src/lib.rs` |
-| Front-end    | Vite 8 + React 19 + Wallet Adapter    | `src/`                             |
-| Verifier     | Node + `@google/genai` (Gemini)   | `agents/verifier.ts`               |
-| Worker       | Node + `@google/genai` (Gemini)   | `agents/worker.ts`                 |
-| Demo runner  | Node + Anchor TS client               | `agents/demo-runner.ts`            |
-| Leaderboard  | `program.account.escrow.all()`        | `src/components/Leaderboard.tsx`   |
-| CI           | GitHub Actions                        | `.github/workflows/ci.yml`         |
-
-### Trust boundaries
-
-- **Buyer** signs `initialize_escrow`, `deposit`, and `refund_buyer`. They lock USDC into a PDA.
-- **Arbiter** signs `release_streamed` and `set_pause`. This is the only authority that can move funds toward the worker mid-job. The arbiter's keypair is held by the verifier process.
-- **Worker** never signs anything on the protocol — they receive USDC into an associated token account.
-- **Cranker** (anyone) signs `finalize_job`. The outcome is determined entirely by on-chain state, so a crank by a bot or by the worker themselves is identical.
-
-The buyer trusts the arbiter pubkey they pick at `initialize_escrow`. The buyer cannot retroactively replace it.
-
----
-
-## On-chain instructions
-
-| Instruction         | Signer    | Effect                                                                                  | Failure modes                          |
-| ------------------- | --------- | --------------------------------------------------------------------------------------- | -------------------------------------- |
-| `initialize_escrow` | buyer     | Create PDA + vault, lock spec params (weights, deadline, threshold, hash)               | weights ≠ 10_000, threshold > 10_000   |
-| `deposit`           | buyer     | Transfer `budget` USDC into the escrow vault                                            | already deposited                      |
-| `release_streamed`  | arbiter   | Score-scaled release for one checkpoint: `(target − already) × budget / 10_000`         | not funded, paused, finalized, no forward progress |
-| `set_pause`         | arbiter   | Halt new releases (used to stop streaming when verifier rejects an artifact)            | not arbiter                            |
-| `refund_buyer`      | buyer     | Vault → buyer ATA. Allowed when **paused** OR **past deadline**                         | active and pre-deadline                |
-| `finalize_job`      | anyone    | After deadline OR fully scored: surplus → worker (`≥ threshold`) or buyer (`< threshold`) | pre-deadline and not fully scored      |
-
-All errors return rich `EscrowError` variants with `#[msg]` strings (`programs/scaffold_escrow/src/lib.rs`).
-
----
-
-## Account layout
-
-```rust
-#[account]
-#[derive(InitSpace)]
-pub struct Escrow {
-    pub buyer: Pubkey,                          // 32
-    pub worker: Pubkey,                         // 32
-    pub arbiter: Pubkey,                        // 32
-    pub mint: Pubkey,                           // 32
-    pub bump: u8,                               // 1
-    pub nonce: u64,                             // 8
-    pub budget: u64,                            // 8
-    pub released: u64,                          // 8   lifetime released to worker
-    pub checkpoint_count: u8,                   // 1
-    pub weights: [u16; MAX_CHECKPOINTS],        // 32  bps, must sum to 10_000
-    pub bps_released_per_cp: [u16; MAX_CHECKPOINTS], // 32  per-cp progress
-    pub deposited: bool,                        // 1
-    pub paused: bool,                           // 1
-    pub finalized: bool,                        // 1
-    pub deadline_unix: i64,                     // 8
-    pub quality_threshold_bps: u16,             // 2
-    pub spec_hash: [u8; 32],                    // 32  SHA-256(spec JSON)
-}
-```
-
-PDA seeds: `[b"escrow", buyer.key().as_ref(), &nonce.to_le_bytes()]`. One escrow per `(buyer, nonce)` pair so a buyer can run many concurrent jobs.
-
-`MAX_CHECKPOINTS = 16`. Practical demos use 8–10.
-
----
-
-## Repo layout
-
-```
-sonsensus/
-├── programs/scaffold_escrow/        # Anchor program
-│   ├── src/lib.rs                   # all on-chain logic (~310 LOC)
-│   └── scaffold_escrow-keypair.json # program id keypair (committed by design)
-├── src/                             # Vite + React dashboard
-│   ├── App.tsx                      # hero, derives state from chain when escrow connected
-│   ├── chain/
-│   │   ├── config.ts                # cluster + program id + USDC mint
-│   │   ├── escrowPda.ts             # PDA derivation
-│   │   ├── program.ts               # typed Program<ScaffoldEscrow>
-│   │   └── leaderboard.ts           # getProgramAccounts → ranking
-│   ├── components/
-│   │   ├── OnChainEscrow.tsx        # full operator UI (init/deposit/score/finalize)
-│   │   └── Leaderboard.tsx          # worker reputation panel
-│   ├── domain/scaffold.ts           # demo contract + integrity engine + tests
-│   ├── idl/                         # vendored IDL JSON + generated TS types
-│   └── wallet/AppProviders.tsx      # Phantom + Solflare adapters
-├── agents/                          # Off-chain Gemini processes
-│   ├── lib/program.ts               # node-side Anchor client
-│   ├── spec.example.json            # 9-checkpoint rubric (weights sum to 10_000)
-│   ├── worker.ts                    # Gemini builds the artifact (FAIL_MODE=1 for Act 2)
-│   ├── verifier.ts                  # Gemini scores it on TICK_MS, signs release_streamed
-│   ├── demo-runner.ts               # Autonomous 3-act on-chain run
-│   └── README.md                    # agent-specific notes
-├── .github/workflows/ci.yml         # lint + test + build + anchor build + IDL drift check
-├── Anchor.toml                      # 0.31.1 toolchain, devnet/testnet/localnet program ids
-├── DEPLOY.md                        # devnet deploy walkthrough
-├── package.json                     # all npm scripts (anchor:build, agent:*, lint, etc.)
-└── tsconfig.json + tsconfig.agents.json  # split front-end vs node TS configs
-```
-
----
 
 ## Setup
 
 ### Prerequisites
+- Node 20+
+- [Foundry](https://book.getfoundry.sh/) (`curl -L https://foundry.paradigm.xyz | bash && foundryup`)
+- AWS account with Bedrock model access enabled (Anthropic Claude + Amazon Nova)
+- Base Sepolia RPC (default `https://sepolia.base.org` works)
+- Base Sepolia ETH for gas (https://www.coinbase.com/faucets/base-ethereum-sepolia-faucet)
+- Base Sepolia USDC (https://faucet.circle.com/ → *Solana → swap to → Base Sepolia*; mint `0x036CbD53842c5426634e7929541eC2318f3dCF7e`)
 
-- **Node 20+** (front-end + agents)
-- **Solana CLI** (`solana --version` ≥ 2.0)
-- **Anchor 0.31.1** (`anchor --version`)
-- A Solana keypair with devnet SOL (for program deploy fees)
-
-### Install
+### Install + build
 
 ```bash
 npm install
+npm run contracts:build
+npm run contracts:test         # 8/8 pass
+npm run lint                   # tsc front-end + tsc agents
+npm test                       # vitest 5/5
+npm run build                  # vite production
 ```
 
-### Build the program (once per source change)
+### Deploy the escrow
 
 ```bash
-npm run anchor:build           # SBF compile + write target/idl + target/types
-npm run anchor:sync-types      # vendor target/idl + target/types into src/idl
+cp .env.example .env           # fill in DEPLOYER_PRIVATE_KEY
+npm run contracts:deploy:sepolia
+# copy the deployed address into VITE_ESCROW_ADDRESS_SEPOLIA + SCAFFOLD_ESCROW_ADDRESS
 ```
 
-CI fails if `target/idl/scaffold_escrow.json` and `src/idl/scaffold_escrow.json` ever drift.
-
-### Deploy to devnet
+### Deploy the verifier (AWS)
 
 ```bash
-solana config set --url https://api.devnet.solana.com
-solana airdrop 3                                          # for program rent
-anchor deploy --provider.cluster devnet
+cd infra
+npm install
+npx cdk bootstrap              # one-time per account/region
+npx cdk deploy
+# CloudFront + API Gateway URL printed; export it as VERIFIER_URL
 ```
 
-The committed keypair fixes the program id at `4dUWewdZ6q1wXD8YxLJFrhWqqp6Gnk7TrXSD8WqDAMnG`. Don't regenerate it unless you also update `Anchor.toml` and `src/chain/config.ts`.
-
-### Front-end env (`.env.local`)
-
-```env
-VITE_SOLANA_CLUSTER=devnet
-VITE_SOLANA_RPC=https://api.devnet.solana.com
-VITE_PROGRAM_ID=4dUWewdZ6q1wXD8YxLJFrhWqqp6Gnk7TrXSD8WqDAMnG
-VITE_USDC_MINT=4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
-```
-
-### Agent env (`.env`)
-
-```env
-GEMINI_API_KEY=AIza...        # https://aistudio.google.com/apikey
-GEMINI_MODEL=gemini-2.5-pro    # or gemini-2.5-flash for cheaper ticks
-RPC_URL=https://api.devnet.solana.com
-USDC_MINT=4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
-BUYER_KEYPAIR=/abs/path/to/buyer.json
-WORKER_KEYPAIR=/abs/path/to/worker.json
-ARBITER_KEYPAIR=/abs/path/to/arbiter.json
-BUYER_PUBKEY=<base58>
-NONCE=1
-SPEC=agents/spec.example.json
-ARTIFACT=agents/output/index.html
-TICK_MS=30000
-BUDGET_USDC=25
-```
-
-Generate the three keypairs locally:
-
-```bash
-solana-keygen new -o ~/.config/solana/buyer.json --no-bip39-passphrase --force
-solana-keygen new -o ~/.config/solana/worker.json --no-bip39-passphrase --force
-solana-keygen new -o ~/.config/solana/arbiter.json --no-bip39-passphrase --force
-```
-
-### Faucets
-
-| What         | Where                                                                 | Notes                          |
-| ------------ | --------------------------------------------------------------------- | ------------------------------ |
-| Devnet SOL   | `solana airdrop 1 <PUBKEY> --url devnet`, https://faucet.solana.com/ | Rate-limited, retry            |
-| Devnet USDC  | https://faucet.circle.com/                                            | Pick **Solana Devnet**         |
-
-Helius and QuickNode both expose free devnet RPC endpoints if `api.devnet.solana.com` is rate-limiting you.
-
----
-
-## Run the demo
-
-### Live UI
+### Run the dashboard
 
 ```bash
 npm run dev
-# open http://localhost:5173
+# http://localhost:5173 — Connect Wallet, switch to Base Sepolia, drive the flow
 ```
 
-1. Connect Phantom or Solflare on **devnet**.
-2. Click **Request devnet SOL (1)** in the on-chain card.
-3. Get devnet USDC into your wallet ATA via Circle's faucet.
-4. Paste the **worker pubkey** and (optionally) **arbiter pubkey**.
-5. Click **Initialize escrow** → **Deposit full budget** → **Create worker USDC ATA**.
-6. As the arbiter wallet, type a `score_bps` per checkpoint (default = full weight) and click **Release**. Repeat with rising scores to see partial credit accumulate.
-7. **Pause / Unpause** mid-stream to demo the failure act.
-8. After the deadline OR full scoring, click **Finalize** to route the surplus.
+## Run the demo (3 minutes)
 
-The hero panel pulls everything from the connected escrow via `connection.onAccountChange` — no manual refresh.
-
-### Autonomous on-chain demo (no UI clicks)
+### 1) Worker generates an artifact via Bedrock
 
 ```bash
-BUYER_KEYPAIR=...   WORKER_KEYPAIR=... \
-ARBITER_KEYPAIR=... USDC_MINT=4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU \
-BUDGET_USDC=25      npm run agent:demo
+npm run agent:worker
+# wrote agents/output/index.html (4823 bytes) via us.amazon.nova-pro-v1:0
 ```
 
-In ~30 seconds the script does:
-
-```
-init → deposit → release × 4 (Act 1)
-              → pause (Act 2)
-              → unpause → release remaining at 80% then 100% (Act 3)
-              → finalize → surplus to worker (quality ≥ 80%)
-```
-
-### Live Gemini verifier
-
-In one terminal:
+### 2) Start the x402 verifier API locally
 
 ```bash
-npm run agent:worker          # writes agents/output/index.html
-# or for the failure act:
-FAIL_MODE=1 npm run agent:worker
+npm run agent:verifier:server
+# [verifier] listening on :4021 · x402 pay-to=0x... · network=base-sepolia
 ```
 
-In a second terminal:
+### 3) The worker pays per score tick
 
 ```bash
-npm run agent:verifier
+npm run agent:verifier:client
+# [client] verifier /pricing → $0.001/call on base-sepolia
+# [client] streaming verification every 30000ms against job 0x...
+# [client] scored 9 checkpoints; settlement_txs=4
 ```
 
-The verifier loop:
+Each tick:
+1. Worker reads `/pricing` (free, agent-economic-reasoning surface).
+2. Worker `fetchWithPayment(/score)` — first attempt returns 402, x402-fetch signs and retries with the X-PAYMENT header.
+3. The x402 facilitator settles the per-call USDC fee on Base.
+4. Lambda invokes Bedrock with the `submit_scores` tool.
+5. Lambda inspects current on-chain progress per checkpoint.
+6. For any forward-progress checkpoint, Lambda calls `ScaffoldEscrow.releaseStreamed(jobId, idx, score_bps)`.
+7. Worker receives delta USDC.
 
-1. Fetches the escrow account.
-2. If finalized → exit. If paused or pre-deposit → sleep.
-3. Loads the artifact from `ARTIFACT` (file path or HTTPS URL).
-4. Calls Gemini with the `submit_scores` tool, schema-locked to `{ checkpoint_id, score_bps, evidence }[]`.
-5. For each checkpoint where `target > already_released`, signs `release_streamed(idx, target)`.
-6. Sleeps `TICK_MS` (default 30 s).
+### 4) Failure act
 
----
+```bash
+FAIL_MODE=1 npm run agent:worker     # ships a deliberately broken artifact
+# verifier scores it low → arbiter `setPause` (or score never rises to threshold)
+# stream stops; vault USDC is still locked
+```
 
-## Front-end behavior
+### 5) Finalize
 
-- **Hero** — pulls `released`, `paused`, `finalized`, and per-checkpoint `bps_released` from the connected escrow when a session is active. Falls back to a static demo contract when no escrow is connected so the page still tells the story for cold visitors.
-- **OnChainEscrow** — typed `Program<ScaffoldEscrow>`, no `unknown` casts. Switched from polling to `connection.onAccountChange(escrowPk)` + `onAccountChange(vaultAta)` so updates are push-based.
-- **Leaderboard** — `program.account.escrow.all()` grouped by `worker`, sorted by lifetime `released`, refreshed every 30 s. Reputation that can't be faked.
+In the dashboard, click *Finalize · route surplus by quality*. Anyone can crank — the outcome is fully determined by on-chain state. If `total_bps_released >= quality_threshold_bps`, the surplus goes to the worker (quality bonus); otherwise it returns to the buyer.
 
----
+### 6) Autonomous on-chain demo (no LLM)
 
-## Agents
+Wallet-and-Bedrock setup taking too long for the pitch? `agent:demo` runs the same 3-act flow deterministically, in ~30s, against the deployed contract:
 
-### Worker (`agents/worker.ts`)
+```bash
+BUYER_PRIVATE_KEY=0x... \
+WORKER_ADDRESS=0x... \
+ARBITER_PRIVATE_KEY=0x... \
+SCAFFOLD_ESCROW_ADDRESS=0x... \
+npm run agent:demo
+```
 
-Calls `gemini.models.generateContent` with one function declaration, `write_artifact`. The schema is `{ html: string, notes?: string }`. Because `toolConfig.functionCallingConfig = { mode: 'ANY', allowedFunctionNames: ['write_artifact'] }`, Gemini is forced to call it exactly once. The HTML is written to `agents/output/index.html`.
+## Contract reference
 
-`FAIL_MODE=1` injects a directive to ship a deliberately broken artifact (no meta description, no anchor tags) so the verifier has to fail at least two checkpoints — the failure act of the demo without a human in the loop.
+```solidity
+function initialize(
+    uint256 nonce,
+    address worker,
+    address arbiter,
+    IERC20  token,                       // USDC
+    uint256 budget,                      // 6 decimals
+    uint64  deadline,                    // unix seconds
+    uint16  qualityThresholdBps,         // 0..=10000
+    uint8   checkpointCount,             // 1..=16
+    uint16[16] calldata weights,         // sum of first checkpointCount = 10000
+    bytes32 specHash                     // SHA-256 of off-chain spec JSON
+) external returns (bytes32 jobId);
 
-### Verifier (`agents/verifier.ts`)
+function deposit(bytes32 jobId) external;            // buyer
+function releaseStreamed(bytes32, uint8 idx, uint16 scoreBps) external;  // arbiter
+function setPause(bytes32 jobId, bool paused) external;                  // arbiter
+function refundBuyer(bytes32 jobId) external;        // buyer; paused or past deadline
+function finalizeJob(bytes32 jobId) external;        // anyone, post-deadline OR fully scored
 
-Calls `messages.create` with the `submit_scores` tool. The tool returns `{ results: { checkpoint_id, score_bps: 0..=10000, evidence }[] }`. The system prompt explicitly instructs the model to score 0 when the rubric is not met and never speculate beyond the artifact. The verifier:
+function getJob(bytes32 jobId) external view returns (...);
+function getCheckpointProgress(bytes32 jobId, uint8 idx) external view returns (uint16 weight, uint16 releasedBps);
+```
 
-- Forward-progresses only — never decreases a checkpoint's score.
-- Skips checkpoints already at their weight ceiling.
-- Stops the loop when `escrow.finalized === true`.
-- Exits the inner step (continues the loop) on transient errors.
+`releaseStreamed` math (verbatim from `contracts/src/ScaffoldEscrow.sol:140`):
 
-### Demo runner (`agents/demo-runner.ts`)
-
-Pure Anchor TS client (no Gemini). Runs the 3-act flow as fast as Solana confirms transactions. Use this for the live pitch — it's deterministic and never blocks on a model call.
-
----
+```
+target = min(scoreBps, weight)
+require(target > already, "NoForwardProgress");
+amount = budget * (target − already) / 10_000
+transfer(vault → worker, amount);
+bps_released_per_cp[idx] = target;
+```
 
 ## Tests + CI
 
 ```bash
-npm run lint        # tsc front-end + tsc agents (separate tsconfigs)
-npm test            # vitest (5 tests in src/domain + src/App)
-npm run build       # vite production build
-npm run anchor:build
+forge test                  # 8 Solidity tests
+npm test                    # 5 vitest tests
+npm run lint                # 0 type errors front-end + agents
 ```
 
-`vitest` covers:
-- Demo contract weight basis-points conversion (sum to 10_000).
-- Settlement math when a checkpoint fails (status `paused`, refundable amount).
-- Stream resume after `applyVerifierResult`.
-- Integrity rejection of malformed contracts.
-- App renders the core hackathon story.
-
-CI (`.github/workflows/ci.yml`) runs lint + tests + build on every push, plus `anchor build` and an IDL drift check (`diff target/idl/scaffold_escrow.json src/idl/scaffold_escrow.json`).
-
----
+CI (`.github/workflows/ci.yml`) runs everything on every push.
 
 ## Security model
 
-**Trusted assumptions:**
+**Trusted assumptions**
+- The buyer picks a trustworthy arbiter address at `initialize`.
+- The arbiter's private key lives in the verifier Lambda (or wherever you deploy `verifier-server.ts`).
+- The Base sequencer is honest (standard L2 trust assumption).
 
-- The buyer picks a trustworthy arbiter pubkey at init.
-- The arbiter's keypair stays in the verifier process (or any other secure environment) and isn't leaked.
-- The Solana cluster is honest (standard L1 trust assumption).
+**Defended**
+- Forward-progress only: a malicious arbiter can't replay an old release.
+- Vault is the contract address — only the contract (not the arbiter) can move funds out.
+- `finalizeJob` is permissionless; the outcome is computed entirely from on-chain state.
+- `refundBuyer` is allowed only when paused OR past deadline.
+- All releases use 256-bit math via `(budget * deltaBps) / 10000` — no overflow risk for any realistic budget.
+- Weights validated to sum to exactly 10_000 bps at init; immutable after.
 
-**Defended:**
-
-- Per-checkpoint forward-progress: a malicious arbiter can't replay an old release.
-- Vault PDA authority means only the program (not the arbiter) can move funds out.
-- `finalize_job` outcome is computed entirely from on-chain state, so it's permissionless.
-- `refund_buyer` is allowed only when `paused` OR `past deadline`, preventing a buyer from racing the verifier.
-- All releases u128-multiply before u128-divide and trap on overflow.
-- Weight sum is validated to exactly 10_000 bps at init; weights cannot be mutated after.
-
-**Not yet implemented (see roadmap):**
-
-- Ed25519 verifier-receipt program instruction (the on-chain x402). Currently the arbiter is a `Signer<'info>`. The cleaner pattern is `Sysvar<Instructions>` + `ed25519_program` so any cranker can submit a verifier-signed receipt.
-- Token-2022 transfer hooks. We use the legacy SPL Token program; mainnet USDC is migrating.
-- A program-side challenge / slashing mechanism for misbehaving arbiters.
-
----
+**Not yet (roadmap)**
+- Permitless `releaseStreamed` via EIP-712 verifier signatures (so the Lambda doesn't have to hold ETH).
+- Token-2022 / SPL transfer hooks for non-USDC stables.
+- Per-checkpoint deterministic verifier types (Lighthouse, Playwright) so non-LLM checkpoints don't go through Bedrock at all.
 
 ## Roadmap
 
-- [ ] Ed25519 receipt verification (anyone-can-crank with a verifier signature).
-- [ ] `litesvm` / `anchor-bankrun` integration test suite for the program.
-- [ ] Code-split the wallet adapter UI to drop the front-end bundle below 500 kB.
-- [ ] `agents/worker.ts` over a real preview-deploy target (Vercel CLI, Bun.serve, etc.) with HTTP fetch in the verifier.
-- [ ] Deterministic verifier types: `lighthouse`, `playwright`, `http`, `link-crawler` — so non-AI checkpoints don't go through the LLM at all.
-- [ ] Token-2022 support.
-- [ ] React Native or Expo wrapper for the dashboard.
-
----
+- [ ] Lambda@Edge variant of the x402 paywall for global low-latency settlement.
+- [ ] DynamoDB-backed score audit log surfaced in the leaderboard panel.
+- [ ] EIP-712 signed verifier receipts (anyone-can-crank `releaseStreamed`).
+- [ ] Worker-side pricing strategy ("call Nova Pro only when threshold proximity > 0.7").
+- [ ] Cross-chain (mirror the Anchor program in `legacy/solana/` and ship a single agent toolkit covering both).
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE) for the full text.
+MIT — see `LICENSE`.
 
-Built for the 72-hour Consensus hackathon. Anchor program is intentionally small and auditable. Issues and PRs welcome.
+Built for the Coinbase × AWS Agentic Hackathon. Original Solana implementation preserved under `legacy/solana/`.

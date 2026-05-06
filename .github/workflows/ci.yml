@@ -15,30 +15,24 @@ jobs:
         with:
           node-version: '20'
           cache: npm
-      - run: npm ci
+      - run: npm ci --legacy-peer-deps
       - run: npm run lint
       - run: npm test
       - run: npm run build
 
-  program:
-    name: anchor build
+  contracts:
+    name: foundry build + test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install Solana CLI
+      - uses: foundry-rs/foundry-toolchain@v1
+      - name: Install OZ + forge-std
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/v2.1.5/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-      - name: Install Anchor
-        run: |
-          cargo install --git https://github.com/coral-xyz/anchor --tag v0.31.1 anchor-cli --locked
-      - name: Build program
-        run: |
-          mkdir -p target/deploy
-          cp programs/scaffold_escrow/scaffold_escrow-keypair.json target/deploy/scaffold_escrow-keypair.json
-          anchor build
-      - name: Verify IDL is committed in sync
-        run: |
-          diff -q target/idl/scaffold_escrow.json src/idl/scaffold_escrow.json
-          diff -q target/types/scaffold_escrow.ts src/idl/scaffold_escrow.types.ts
+          cd contracts
+          mkdir -p lib
+          [ -d lib/openzeppelin-contracts ] || git clone --depth 1 -b v5.1.0 https://github.com/OpenZeppelin/openzeppelin-contracts.git lib/openzeppelin-contracts
+          [ -d lib/forge-std ] || git clone --depth 1 -b v1.9.4 https://github.com/foundry-rs/forge-std.git lib/forge-std
+      - name: Build
+        run: cd contracts && forge build
+      - name: Test
+        run: cd contracts && forge test -vv

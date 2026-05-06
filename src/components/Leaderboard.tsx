@@ -1,49 +1,83 @@
 import { useEffect, useState } from 'react';
-import { useAnchorWallet, useConnection } from '@solana/wallet-adapter-react';
+import { useChainId, usePublicClient } from 'wagmi';
+import { formatUnits, type Address } from 'viem';
 
-import { explorerAddressUrl } from '../chain/config';
-import { fetchAllEscrows, rankWorkers, type LeaderboardRow } from '../chain/leaderboard';
-import { getProgram } from '../chain/program';
+import { SCAFFOLD_ESCROW_ABI } from '../chain/abi';
+import { escrowAddress, explorerAddressUrl } from '../chain/config';
+
+type Row = { worker: Address; totalReleasedUsdc: number; jobs: number };
+
+const USDC_DECIMALS = 6;
 
 export function Leaderboard() {
-  const { connection } = useConnection();
-  const wallet = useAnchorWallet();
-  const [rows, setRows] = useState<LeaderboardRow[]>([]);
+  const chainId = useChainId();
+  const publicClient = usePublicClient();
+  const [rows, setRows] = useState<Row[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!wallet) return;
+    if (!publicClient) return;
+    let escrowAddr: Address;
+    try { escrowAddr = escrowAddress(chainId); } catch { return; }
+
     let cancelled = false;
     const refresh = async () => {
-      setBusy(true);
-      setErr(null);
+      setBusy(true); setErr(null);
       try {
-        const program = getProgram(connection, wallet);
-        const escrows = await fetchAllEscrows(program);
-        if (!cancelled) setRows(rankWorkers(escrows));
+        // Pull all release events in the last ~10000 blocks (~5 hours on Base).
+        const head = await publicClient.getBlockNumber();
+        const fromBlock = head > 100_000n ? head - 100_000n : 0n;
+        const events = await publicClient.getContractEvents({
+          address: escrowAddr,
+          abi: SCAFFOLD_ESCROW_ABI,
+          eventName: 'ReleaseStreamed',
+          fromBlock,
+          toBlock: head,
+        });
+        // Map jobId → released sum
+        const perJob = new Map<string, bigint>();
+        for (const ev of events) {
+          const jobId = ev.args.jobId as string;
+          const amount = ev.args.amount as bigint;
+          perJob.set(jobId, (perJob.get(jobId) ?? 0n) + amount);
+        }
+        // Pull JobInitialized events to map jobId → worker
+        const inits = await publicClient.getContractEvents({
+          address: escrowAddr,
+          abi: SCAFFOLD_ESCROW_ABI,
+          eventName: 'JobInitialized',
+          fromBlock,
+          toBlock: head,
+        });
+        const jobToWorker = new Map<string, Address>();
+        for (const ev of inits) {
+          jobToWorker.set(ev.args.jobId as string, ev.args.worker as Address);
+        }
+        // Aggregate by worker
+        const byWorker = new Map<Address, Row>();
+        for (const [jobId, total] of perJob) {
+          const worker = jobToWorker.get(jobId);
+          if (!worker) continue;
+          const usdc = Number(formatUnits(total, USDC_DECIMALS));
+          const row = byWorker.get(worker) ?? { worker, totalReleasedUsdc: 0, jobs: 0 };
+          row.totalReleasedUsdc += usdc;
+          row.jobs += 1;
+          byWorker.set(worker, row);
+        }
+        if (!cancelled) {
+          setRows([...byWorker.values()].sort((a, b) => b.totalReleasedUsdc - a.totalReleasedUsdc));
+        }
       } catch (e) {
-        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
+        if (!cancelled) setErr((e as Error).message);
       } finally {
         if (!cancelled) setBusy(false);
       }
     };
     void refresh();
     const id = setInterval(refresh, 30_000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [connection, wallet]);
-
-  if (!wallet) {
-    return (
-      <section className="chain-section" aria-label="Worker leaderboard">
-        <p className="section-label">Worker leaderboard</p>
-        <h2 className="section-title chain-title">Connect a wallet to load worker reputation</h2>
-      </section>
-    );
-  }
+    return () => { cancelled = true; clearInterval(id); };
+  }, [chainId, publicClient]);
 
   return (
     <section className="chain-section" aria-label="Worker leaderboard">
@@ -52,35 +86,30 @@ export function Leaderboard() {
           <p className="section-label">Worker leaderboard</p>
           <h2 className="section-title chain-title">Earned USDC = on-chain reputation</h2>
           <p className="section-text chain-lede">
-            Lifetime USDC released across every Scaffold escrow, indexed by worker pubkey. No reviews, no stars —
-            reputation is just money the verifier signed off on, sitting in a wallet.
+            Lifetime USDC released across every Scaffold job on Base, indexed from
+            <code> ReleaseStreamed</code> events. Reputation is just money the verifier signed off on.
           </p>
         </div>
       </div>
-      {busy && rows.length === 0 ? (
-        <p className="chain-busy">Indexing program accounts…</p>
-      ) : null}
+      {busy && rows.length === 0 ? <p className="chain-busy">Indexing events…</p> : null}
       {err ? <pre className="chain-error" role="alert">{err}</pre> : null}
       <div className="release-grid">
         {rows.length === 0 && !busy ? (
-          <p className="chain-muted">No escrows on this cluster yet — initialize one above.</p>
+          <p className="chain-muted">No releases on this chain yet — initialize a job above.</p>
         ) : null}
         {rows.map((row, idx) => (
-          <div key={row.worker.toBase58()} className="release-row">
+          <div key={row.worker} className="release-row">
             <div>
               <span className="release-idx">{idx + 1}</span>
               <a
                 className="release-title mono"
-                href={explorerAddressUrl(row.worker.toBase58())}
+                href={explorerAddressUrl(chainId, row.worker)}
                 target="_blank"
                 rel="noreferrer"
               >
-                {row.worker.toBase58().slice(0, 8)}…{row.worker.toBase58().slice(-4)}
+                {row.worker.slice(0, 8)}…{row.worker.slice(-4)}
               </a>
               <span className="released-tag">{row.jobs} job{row.jobs === 1 ? '' : 's'}</span>
-              {row.finalizedJobs > 0 ? (
-                <span className="released-tag">{row.finalizedJobs} finalized</span>
-              ) : null}
             </div>
             <strong>${row.totalReleasedUsdc.toLocaleString('en-US', { maximumFractionDigits: 2 })}</strong>
           </div>

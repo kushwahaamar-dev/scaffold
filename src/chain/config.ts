@@ -1,43 +1,50 @@
-import { clusterApiUrl, PublicKey } from '@solana/web3.js';
+import { base, baseSepolia, type Chain } from 'viem/chains';
+import type { Address } from 'viem';
 
-export type SolanaCluster = 'devnet' | 'testnet' | 'mainnet-beta';
+export const SUPPORTED_CHAINS = [baseSepolia, base] as const;
+export type SupportedChain = (typeof SUPPORTED_CHAINS)[number];
 
-const DEFAULT_PROGRAM_ID = '4dUWewdZ6q1wXD8YxLJFrhWqqp6Gnk7TrXSD8WqDAMnG';
-/** Circle devnet USDC (spl-token). */
-const DEFAULT_USDC_DEVNET = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
+const env = import.meta.env;
 
-export function getCluster(): SolanaCluster {
-  const raw = import.meta.env.VITE_SOLANA_CLUSTER;
-  if (raw === 'testnet' || raw === 'mainnet-beta') {
-    return raw;
+export function getChain(): Chain {
+  return (env.VITE_CHAIN ?? 'base-sepolia') === 'base' ? base : baseSepolia;
+}
+
+const ESCROW_DEFAULT: Record<number, Address | undefined> = {
+  [baseSepolia.id]: env.VITE_ESCROW_ADDRESS_SEPOLIA as Address | undefined,
+  [base.id]: env.VITE_ESCROW_ADDRESS_MAINNET as Address | undefined,
+};
+
+const USDC_DEFAULT: Record<number, Address> = {
+  // Circle official USDC on Base Sepolia
+  [baseSepolia.id]: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+  // Circle official USDC on Base mainnet
+  [base.id]: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+};
+
+export function escrowAddress(chainId: number): Address {
+  const addr = ESCROW_DEFAULT[chainId];
+  if (!addr) {
+    throw new Error(
+      `No ScaffoldEscrow address configured for chain ${chainId}. ` +
+      `Set VITE_ESCROW_ADDRESS_SEPOLIA after deploying contracts/.`,
+    );
   }
-  return 'devnet';
+  return addr;
 }
 
-export function getRpcEndpoint(): string {
-  const custom = import.meta.env.VITE_SOLANA_RPC;
-  if (custom && custom.length > 0) {
-    return custom;
-  }
-  return clusterApiUrl(getCluster());
+export function usdcAddress(chainId: number): Address {
+  return USDC_DEFAULT[chainId] ?? USDC_DEFAULT[baseSepolia.id];
 }
 
-export function getExplorerClusterQuery(): string {
-  const cluster = getCluster();
-  if (cluster === 'mainnet-beta') {
-    return '';
-  }
-  return `?cluster=${cluster}`;
+export function explorerTxUrl(chainId: number, hash: string): string {
+  return chainId === base.id
+    ? `https://basescan.org/tx/${hash}`
+    : `https://sepolia.basescan.org/tx/${hash}`;
 }
 
-export function explorerTxUrl(signature: string): string {
-  return `https://explorer.solana.com/tx/${signature}${getExplorerClusterQuery()}`;
+export function explorerAddressUrl(chainId: number, addr: string): string {
+  return chainId === base.id
+    ? `https://basescan.org/address/${addr}`
+    : `https://sepolia.basescan.org/address/${addr}`;
 }
-
-export function explorerAddressUrl(address: string): string {
-  return `https://explorer.solana.com/address/${address}${getExplorerClusterQuery()}`;
-}
-
-export const PROGRAM_ID = new PublicKey(import.meta.env.VITE_PROGRAM_ID ?? DEFAULT_PROGRAM_ID);
-
-export const USDC_MINT = new PublicKey(import.meta.env.VITE_USDC_MINT ?? DEFAULT_USDC_DEVNET);

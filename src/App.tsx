@@ -1,11 +1,11 @@
 import { useCallback, useId, useMemo, useState } from 'react';
-import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { useAccount, useChainId } from 'wagmi';
+import { formatUnits } from 'viem';
 
 import { OnChainEscrow, type EscrowSession } from './components/OnChainEscrow';
 import { Leaderboard } from './components/Leaderboard';
 import './App.css';
-import { getCluster } from './chain/config';
 import {
   createDemoContract,
   evaluateContract,
@@ -14,8 +14,8 @@ import {
 } from './domain/scaffold';
 
 export default function App() {
-  const cluster = getCluster();
-  const { connected } = useWallet();
+  const chainId = useChainId();
+  const account = useAccount();
   const [session, setSession] = useState<EscrowSession>(null);
   const onSession = useCallback((next: EscrowSession) => setSession(next), []);
 
@@ -23,6 +23,7 @@ export default function App() {
   const settlement = evaluateContract(contract);
   const live = session !== null;
   const statusLabel = settlement.status === 'paused' ? 'Payment paused' : 'Streaming';
+  const chainLabel = chainId === 8453 ? 'Base' : 'Base Sepolia';
 
   const scrollToEscrow = () => {
     document.querySelector('.chain-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -36,9 +37,9 @@ export default function App() {
           <span className="brand-name">Scaffold</span>
         </div>
         <div className="top-meta">
-          <span className="network-chip">Solana · {cluster}</span>
+          <span className="network-chip">{chainLabel} · x402</span>
           <span className="network-chip network-chip--muted">
-            {live ? 'On-chain escrow connected' : 'Structured verifier'}
+            {live ? 'On-chain escrow connected' : 'AWS Bedrock verifier'}
           </span>
         </div>
       </header>
@@ -46,18 +47,19 @@ export default function App() {
       <main className="main-flow">
         <section className="hero">
           <div className="hero-copy">
-            <p className="eyebrow">Protocol demo</p>
+            <p className="eyebrow">Coinbase × AWS hackathon · agentic infra</p>
             <h1 className="title">
               Stripe for <em className="title-accent">verified work</em>
             </h1>
             <p className="subtitle">
-              Specs become contracts. Checkpoints become release conditions. A lightweight judge decides whether
-              USDC keeps streaming, pauses, or returns to the buyer — no ticket queue, no subjective mediation.
+              x402 paywalled verifier API on AWS, USDC streaming on Base, AI judge backed by Bedrock.
+              Specs are the contract; checkpoints are the release conditions; the verifier returns scores in a
+              signed schema; the contract releases proportional USDC. No human dispute resolution.
             </p>
             <div className="hero-actions">
-              <WalletMultiButton className="wallet-multi-btn hero-wallet-btn" />
+              <ConnectButton chainStatus="icon" accountStatus={{ smallScreen: 'avatar', largeScreen: 'address' }} />
               <button type="button" className="primary-btn hero-cta" onClick={scrollToEscrow}>
-                {connected ? 'Open escrow controls ↓' : 'Get started ↓'}
+                {account.isConnected ? 'Open escrow controls ↓' : 'Get started ↓'}
               </button>
             </div>
             <div className="hero-actions hero-actions--meta">
@@ -77,9 +79,7 @@ export default function App() {
               <span>{contract.currency} escrow</span>
             </div>
             <div className="amount-row">
-              <span className="amount">
-                {formatCurrency(settlement.releasedAmount)} released
-              </span>
+              <span className="amount">{formatCurrency(settlement.releasedAmount)} released</span>
               <span className="amount-caption">
                 {live ? 'on-chain · per-checkpoint' : 'to worker · checkpoint-weighted'}
               </span>
@@ -106,7 +106,7 @@ export default function App() {
             <p className="section-text">
               Worker: <strong className="section-strong">{contract.worker}</strong>.{' '}
               {settlement.failedCheckpoints[0]
-                ? 'The failed performance checkpoint stops new release while completed work remains paid. Once the agent fixes the regression, the same judge resumes the stream.'
+                ? 'The failed checkpoint stops new release while completed work remains paid. Once the agent fixes the regression, the same judge resumes the stream.'
                 : 'All released checkpoints have been honored on-chain by the arbiter wallet. Future checkpoints stream as the verifier signs them.'}
             </p>
           </div>
@@ -134,35 +134,23 @@ export default function App() {
 
 function deriveContract(session: EscrowSession): ScaffoldContract {
   const base = createDemoContract();
-  if (!session) {
-    return base;
-  }
+  if (!session) return base;
 
-  const { escrow, releasedUiAmount } = session;
-  const budgetUi = escrow.budget.toNumber() / 1_000_000;
-  const count = escrow.checkpointCount;
-  const bpsReleased = escrow.bpsReleasedPerCp;
-  const weights = escrow.weights;
+  const usdcDec = 6;
+  const budgetUi = Number(formatUnits(session.budget, usdcDec));
+  const releasedUi = Number(formatUnits(session.released, usdcDec));
+  const count = session.checkpointCount;
+  const bps = session.bpsReleasedPerCp;
+  const weights = session.weights;
 
   const chainCheckpoints = base.checkpoints.slice(0, count).map((cp, idx) => {
-    const weightBps = weights[idx];
-    const releasedBps = bpsReleased[idx];
-    const fraction = weightBps === 0 ? 0 : releasedBps / weightBps;
-    const evidenceTail = `${(releasedBps / 100).toFixed(2)}% of 100% released by arbiter ${escrow.arbiter
-      .toBase58()
-      .slice(0, 6)}…`;
-
-    if (fraction >= 1) {
-      return { ...cp, state: 'passed' as CheckpointState, evidence: evidenceTail };
-    }
-    if (fraction > 0) {
-      return {
-        ...cp,
-        state: 'running' as CheckpointState,
-        evidence: `Streaming · ${evidenceTail}`,
-      };
-    }
-    if (escrow.paused) {
+    const weight = weights[idx] ?? 0;
+    const releasedBps = bps[idx] ?? 0;
+    const fraction = weight === 0 ? 0 : releasedBps / weight;
+    const tail = `${(releasedBps / 100).toFixed(2)}% released by arbiter ${session.arbiter.slice(0, 8)}…`;
+    if (fraction >= 1) return { ...cp, state: 'passed' as CheckpointState, evidence: tail };
+    if (fraction > 0) return { ...cp, state: 'running' as CheckpointState, evidence: `Streaming · ${tail}` };
+    if (session.paused) {
       return {
         ...cp,
         state: 'failed' as CheckpointState,
@@ -180,8 +168,8 @@ function deriveContract(session: EscrowSession): ScaffoldContract {
     auditTrail: [
       {
         at: new Date().toISOString(),
-        summary: `Chain state: released ${releasedUiAmount} USDC, ${
-          escrow.paused ? 'paused' : escrow.finalized ? 'finalized' : 'active'
+        summary: `Chain state: released ${releasedUi} USDC, ${
+          session.paused ? 'paused' : session.finalized ? 'finalized' : 'active'
         }.`,
       },
     ],
@@ -202,13 +190,7 @@ function ProgressBar({ pct }: { pct: number }) {
   const w = Math.min(100, Math.max(0, pct));
   const gradId = `pg-${gid}`;
   return (
-    <svg
-      className="progress-svg"
-      viewBox="0 0 100 10"
-      preserveAspectRatio="none"
-      role="presentation"
-      aria-hidden="true"
-    >
+    <svg className="progress-svg" viewBox="0 0 100 10" preserveAspectRatio="none" role="presentation" aria-hidden="true">
       <defs>
         <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="0%">
           <stop offset="0%" stopColor="#b8872e" />
@@ -222,14 +204,6 @@ function ProgressBar({ pct }: { pct: number }) {
   );
 }
 
-function formatCurrency(value: number) {
-  return `$${value.toLocaleString('en-US')}`;
-}
-
-function checkpointCardClassName(state: CheckpointState) {
-  return `checkpoint-card checkpoint-card--${state}`;
-}
-
-function statePillClassName(state: CheckpointState) {
-  return `state-pill state-pill--${state}`;
-}
+function formatCurrency(value: number) { return `$${value.toLocaleString('en-US')}`; }
+function checkpointCardClassName(state: CheckpointState) { return `checkpoint-card checkpoint-card--${state}`; }
+function statePillClassName(state: CheckpointState) { return `state-pill state-pill--${state}`; }
