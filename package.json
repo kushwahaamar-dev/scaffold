@@ -17,8 +17,8 @@
     "lint": "tsc --noEmit && tsc --noEmit -p tsconfig.agents.json"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.95.0",
     "@coral-xyz/anchor": "^0.31.1",
+    "@google/genai": "^1.52.0",
     "@solana/spl-token": "^0.4.13",
     "@solana/wallet-adapter-base": "^0.9.27",
     "@solana/wallet-adapter-phantom": "^0.9.29",

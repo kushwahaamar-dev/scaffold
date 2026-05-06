@@ -1,4 +1,6 @@
 import { useCallback, useId, useMemo, useState } from 'react';
+import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { useWallet } from '@solana/wallet-adapter-react';
 
 import { OnChainEscrow, type EscrowSession } from './components/OnChainEscrow';
 import { Leaderboard } from './components/Leaderboard';
@@ -13,6 +15,7 @@ import {
 
 export default function App() {
   const cluster = getCluster();
+  const { connected } = useWallet();
   const [session, setSession] = useState<EscrowSession>(null);
   const onSession = useCallback((next: EscrowSession) => setSession(next), []);
 
@@ -20,6 +23,10 @@ export default function App() {
   const settlement = evaluateContract(contract);
   const live = session !== null;
   const statusLabel = settlement.status === 'paused' ? 'Payment paused' : 'Streaming';
+
+  const scrollToEscrow = () => {
+    document.querySelector('.chain-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   return (
     <div className="shell">
@@ -48,6 +55,12 @@ export default function App() {
               USDC keeps streaming, pauses, or returns to the buyer — no ticket queue, no subjective mediation.
             </p>
             <div className="hero-actions">
+              <WalletMultiButton className="wallet-multi-btn hero-wallet-btn" />
+              <button type="button" className="primary-btn hero-cta" onClick={scrollToEscrow}>
+                {connected ? 'Open escrow controls ↓' : 'Get started ↓'}
+              </button>
+            </div>
+            <div className="hero-actions hero-actions--meta">
               <span className="primary-pill">
                 <span className="pulse-dot" aria-hidden="true" />
                 {statusLabel}

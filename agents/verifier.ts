@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { readFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import BN from 'bn.js';
-import Anthropic from '@anthropic-ai/sdk';
+import { FunctionCallingConfigMode, GoogleGenAI, Type, type FunctionDeclaration } from '@google/genai';
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { PublicKey } from '@solana/web3.js';
 
@@ -21,21 +21,21 @@ type Spec = {
 
 type ScoreResult = { checkpoint_id: string; score_bps: number; evidence: string };
 
-const SCORE_TOOL: Anthropic.Tool = {
+const SCORE_FN: FunctionDeclaration = {
   name: 'submit_scores',
   description:
-    'Score every checkpoint of the spec against the supplied artifact. score_bps is 0..=10000, where the value represents the share of that checkpoint deemed satisfied by the artifact.',
-  input_schema: {
-    type: 'object',
+    'Score every checkpoint of the spec against the supplied artifact. score_bps is 0..=10000 representing the share of that checkpoint deemed satisfied by the artifact.',
+  parameters: {
+    type: Type.OBJECT,
     properties: {
       results: {
-        type: 'array',
+        type: Type.ARRAY,
         items: {
-          type: 'object',
+          type: Type.OBJECT,
           properties: {
-            checkpoint_id: { type: 'string' },
-            score_bps: { type: 'integer', minimum: 0, maximum: 10000 },
-            evidence: { type: 'string' },
+            checkpoint_id: { type: Type.STRING },
+            score_bps: { type: Type.INTEGER },
+            evidence: { type: Type.STRING },
           },
           required: ['checkpoint_id', 'score_bps', 'evidence'],
         },
@@ -46,7 +46,7 @@ const SCORE_TOOL: Anthropic.Tool = {
 };
 
 async function scoreArtifact(
-  client: Anthropic,
+  client: GoogleGenAI,
   model: string,
   spec: Spec,
   artifact: string,
@@ -66,22 +66,26 @@ async function scoreArtifact(
     `Artifact (verbatim, do not interpret beyond what is shown):\n${artifact.slice(0, 60_000)}`,
   ].join('\n');
 
-  const resp = await client.messages.create({
+  const resp = await client.models.generateContent({
     model,
-    max_tokens: 4096,
-    tools: [SCORE_TOOL],
-    tool_choice: { type: 'tool', name: SCORE_TOOL.name },
-    system: sys,
-    messages: [{ role: 'user', content: user }],
+    contents: user,
+    config: {
+      systemInstruction: sys,
+      tools: [{ functionDeclarations: [SCORE_FN] }],
+      toolConfig: {
+        functionCallingConfig: { mode: FunctionCallingConfigMode.ANY, allowedFunctionNames: [SCORE_FN.name!] },
+      },
+    },
   });
 
-  const toolUse = resp.content.find((c) => c.type === 'tool_use');
-  if (!toolUse || toolUse.type !== 'tool_use') {
-    throw new Error('Verifier model did not return a tool call');
+  const calls = resp.functionCalls ?? [];
+  const call = calls.find((c) => c.name === SCORE_FN.name);
+  if (!call) {
+    throw new Error('Verifier model did not return a function call');
   }
-  const input = toolUse.input as { results?: ScoreResult[] };
-  if (!input.results) {
-    throw new Error('Verifier tool call missing results array');
+  const input = call.args as { results?: ScoreResult[] };
+  if (!input?.results) {
+    throw new Error('Verifier function call missing results array');
   }
   return input.results;
 }
@@ -94,7 +98,7 @@ function readArtifact(pathOrUrl: string): Promise<string> {
 }
 
 async function main() {
-  const required = ['ANTHROPIC_API_KEY', 'ARBITER_KEYPAIR', 'BUYER_PUBKEY', 'NONCE', 'ARTIFACT'];
+  const required = ['GEMINI_API_KEY', 'ARBITER_KEYPAIR', 'BUYER_PUBKEY', 'NONCE', 'ARTIFACT'];
   for (const k of required) {
     if (!process.env[k]) {
       throw new Error(`Missing required env var: ${k}`);
@@ -105,7 +109,7 @@ async function main() {
   const specPath = process.env.SPEC ?? 'agents/spec.example.json';
   const artifactPath = process.env.ARTIFACT!;
   const tickMs = Number(process.env.TICK_MS ?? 30_000);
-  const model = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-7';
+  const model = process.env.GEMINI_MODEL ?? 'gemini-2.5-pro';
 
   const arbiter = loadKeypair(process.env.ARBITER_KEYPAIR!);
   const buyer = new PublicKey(process.env.BUYER_PUBKEY!);
@@ -115,7 +119,7 @@ async function main() {
   const [escrow] = escrowPda(program.programId, buyer, nonce);
 
   const spec: Spec = JSON.parse(readFileSync(specPath, 'utf8'));
-  const claude = new Anthropic();
+  const gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   console.log(`[verifier] arbiter=${arbiter.publicKey.toBase58()}`);
   console.log(`[verifier] escrow=${escrow.toBase58()}`);
@@ -151,7 +155,7 @@ async function main() {
 
     let scores: ScoreResult[];
     try {
-      scores = await scoreArtifact(claude, model, spec, artifact);
+      scores = await scoreArtifact(gemini, model, spec, artifact);
     } catch (e) {
       console.warn('[verifier] score failed —', (e as Error).message);
       await sleep(tickMs);

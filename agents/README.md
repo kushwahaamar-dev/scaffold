@@ -5,15 +5,15 @@ Two off-chain processes that close the loop between spec → artifact → on-cha
 ## Files
 
 - `spec.example.json` — machine-readable rubric (9 checkpoints, weights sum to 10000 bps)
-- `worker.ts` — Claude generates a single-file HTML landing page that satisfies the spec
-- `verifier.ts` — Claude scores the artifact every tick and signs `release_streamed` when scores rise
+- `worker.ts` — Gemini generates a single-file HTML landing page that satisfies the spec
+- `verifier.ts` — Gemini scores the artifact every tick and signs `release_streamed` when scores rise
 - `lib/program.ts` — shared Anchor + Solana plumbing
 
 ## Env
 
 ```
-ANTHROPIC_API_KEY=sk-ant-...
-ANTHROPIC_MODEL=claude-opus-4-7        # or claude-sonnet-4-6 for cheaper ticks
+GEMINI_API_KEY=AIza...                 # https://aistudio.google.com/apikey
+GEMINI_MODEL=gemini-2.5-pro            # or gemini-2.5-flash for cheaper ticks
 RPC_URL=https://api.devnet.solana.com
 ARBITER_KEYPAIR=/Users/you/.config/solana/arbiter.json
 BUYER_PUBKEY=...                       # base58

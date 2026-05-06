@@ -36,7 +36,7 @@ Today, freelance payments are binary and human-mediated:
 Two things became simultaneously true in 2025 and are the reason this protocol can exist now:
 
 1. **Streaming USDC micropayments are practical** on Solana (sub-second finality, ~$0.0001 fees, x402-style signed receipts).
-2. **Deterministic spec verification is practical** with Claude's structured-output tool use (a model returns scores in a typed schema, never free text).
+2. **Deterministic spec verification is practical** with Gemini's structured-output function calling (a model returns scores in a typed schema, never free text).
 
 Scaffold combines them. Payment becomes a **continuous function of verified progress**, computed by a non-human judge with a locked rubric, settled on-chain.
 
@@ -47,7 +47,7 @@ Scaffold combines them. Payment becomes a **continuous function of verified prog
 ```
 buyer ─► initialize_escrow ─► deposit ─► release_streamed (× N: idx, score_bps)
                                                   ▲
-                                                  │ Claude verifier
+                                                  │ Gemini verifier
                                                   │ scores artifact every TICK_MS
                                                   │ submit_scores tool call → release_streamed
                                                   ▼
@@ -95,8 +95,8 @@ Reputation = the worker's lifetime `released` USDC across all of their escrow ac
 | ------------ | ------------------------------------- | ---------------------------------- |
 | Settlement   | Anchor 0.31 program on Solana         | `programs/scaffold_escrow/src/lib.rs` |
 | Front-end    | Vite 8 + React 19 + Wallet Adapter    | `src/`                             |
-| Verifier     | Node + `@anthropic-ai/sdk` (Claude)   | `agents/verifier.ts`               |
-| Worker       | Node + `@anthropic-ai/sdk` (Claude)   | `agents/worker.ts`                 |
+| Verifier     | Node + `@google/genai` (Gemini)   | `agents/verifier.ts`               |
+| Worker       | Node + `@google/genai` (Gemini)   | `agents/worker.ts`                 |
 | Demo runner  | Node + Anchor TS client               | `agents/demo-runner.ts`            |
 | Leaderboard  | `program.account.escrow.all()`        | `src/components/Leaderboard.tsx`   |
 | CI           | GitHub Actions                        | `.github/workflows/ci.yml`         |
@@ -179,11 +179,11 @@ sonsensus/
 │   ├── domain/scaffold.ts           # demo contract + integrity engine + tests
 │   ├── idl/                         # vendored IDL JSON + generated TS types
 │   └── wallet/AppProviders.tsx      # Phantom + Solflare adapters
-├── agents/                          # Off-chain Claude processes
+├── agents/                          # Off-chain Gemini processes
 │   ├── lib/program.ts               # node-side Anchor client
 │   ├── spec.example.json            # 9-checkpoint rubric (weights sum to 10_000)
-│   ├── worker.ts                    # Claude builds the artifact (FAIL_MODE=1 for Act 2)
-│   ├── verifier.ts                  # Claude scores it on TICK_MS, signs release_streamed
+│   ├── worker.ts                    # Gemini builds the artifact (FAIL_MODE=1 for Act 2)
+│   ├── verifier.ts                  # Gemini scores it on TICK_MS, signs release_streamed
 │   ├── demo-runner.ts               # Autonomous 3-act on-chain run
 │   └── README.md                    # agent-specific notes
 ├── .github/workflows/ci.yml         # lint + test + build + anchor build + IDL drift check
@@ -241,8 +241,8 @@ VITE_USDC_MINT=4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
 ### Agent env (`.env`)
 
 ```env
-ANTHROPIC_API_KEY=sk-ant-...
-ANTHROPIC_MODEL=claude-opus-4-7
+GEMINI_API_KEY=AIza...        # https://aistudio.google.com/apikey
+GEMINI_MODEL=gemini-2.5-pro    # or gemini-2.5-flash for cheaper ticks
 RPC_URL=https://api.devnet.solana.com
 USDC_MINT=4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
 BUYER_KEYPAIR=/abs/path/to/buyer.json
@@ -312,7 +312,7 @@ init → deposit → release × 4 (Act 1)
               → finalize → surplus to worker (quality ≥ 80%)
 ```
 
-### Live Claude verifier
+### Live Gemini verifier
 
 In one terminal:
 
@@ -333,7 +333,7 @@ The verifier loop:
 1. Fetches the escrow account.
 2. If finalized → exit. If paused or pre-deposit → sleep.
 3. Loads the artifact from `ARTIFACT` (file path or HTTPS URL).
-4. Calls Claude with the `submit_scores` tool, schema-locked to `{ checkpoint_id, score_bps, evidence }[]`.
+4. Calls Gemini with the `submit_scores` tool, schema-locked to `{ checkpoint_id, score_bps, evidence }[]`.
 5. For each checkpoint where `target > already_released`, signs `release_streamed(idx, target)`.
 6. Sleeps `TICK_MS` (default 30 s).
 
@@ -351,7 +351,7 @@ The verifier loop:
 
 ### Worker (`agents/worker.ts`)
 
-Calls `messages.create` with a single tool, `write_artifact`. The tool's input schema is `{ html: string, notes?: string }`. Because `tool_choice = { type: 'tool', name: 'write_artifact' }`, Claude is forced to call it exactly once. The HTML is written to `agents/output/index.html`.
+Calls `gemini.models.generateContent` with one function declaration, `write_artifact`. The schema is `{ html: string, notes?: string }`. Because `toolConfig.functionCallingConfig = { mode: 'ANY', allowedFunctionNames: ['write_artifact'] }`, Gemini is forced to call it exactly once. The HTML is written to `agents/output/index.html`.
 
 `FAIL_MODE=1` injects a directive to ship a deliberately broken artifact (no meta description, no anchor tags) so the verifier has to fail at least two checkpoints — the failure act of the demo without a human in the loop.
 
@@ -366,7 +366,7 @@ Calls `messages.create` with the `submit_scores` tool. The tool returns `{ resul
 
 ### Demo runner (`agents/demo-runner.ts`)
 
-Pure Anchor TS client (no Claude). Runs the 3-act flow as fast as Solana confirms transactions. Use this for the live pitch — it's deterministic and never blocks on a model call.
+Pure Anchor TS client (no Gemini). Runs the 3-act flow as fast as Solana confirms transactions. Use this for the live pitch — it's deterministic and never blocks on a model call.
 
 ---
 
@@ -421,7 +421,7 @@ CI (`.github/workflows/ci.yml`) runs lint + tests + build on every push, plus `a
 - [ ] `litesvm` / `anchor-bankrun` integration test suite for the program.
 - [ ] Code-split the wallet adapter UI to drop the front-end bundle below 500 kB.
 - [ ] `agents/worker.ts` over a real preview-deploy target (Vercel CLI, Bun.serve, etc.) with HTTP fetch in the verifier.
-- [ ] Deterministic verifier types: `lighthouse`, `playwright`, `http`, `link-crawler` — so non-AI checkpoints don't go through Claude at all.
+- [ ] Deterministic verifier types: `lighthouse`, `playwright`, `http`, `link-crawler` — so non-AI checkpoints don't go through the LLM at all.
 - [ ] Token-2022 support.
 - [ ] React Native or Expo wrapper for the dashboard.
 
