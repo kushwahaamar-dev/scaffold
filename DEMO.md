@@ -1,5 +1,7 @@
 # Scaffold — verified live demo on Base Sepolia
 
+> Historical evidence notice: the receipts below were produced by the May 7, 2026 scripted contract demo against the previously deployed immutable bytecode. They prove those listed Base Sepolia transactions, not the current accounting fixes, paid Bedrock verification, worker authorization, AWS deployment, or a complete submission-to-payout workflow. The current repository keeps the scripted demo as a separate surface and adds mocked agent integration tests plus Foundry accounting tests.
+
 ## Demo run #2 (recorded 2026-05-07, captured in `docs/demo-video/scaffold-live-demo.mp4`)
 
 Job ID: `0x6c81c13c830e0355488a099420c344006331273bffb115db7301c0d3a332e84d` · Budget 1 USDC · Threshold 80% · 9 checkpoints · finalized: ✅
@@ -27,14 +29,14 @@ Job ID: `0x6c81c13c830e0355488a099420c344006331273bffb115db7301c0d3a332e84d` · 
 | 19 | release cp[8] @ 2500bps (100%) | https://sepolia.basescan.org/tx/0xbb0cef7b2d0e22469562245e6b2914c54e1a6179650955ab725321dd36164652 |
 | 20 | `finalizeJob` | https://sepolia.basescan.org/tx/0xbabc6ac64022b4e35e4f90368176c421c8bb0567897f19aefb0a51b2a9f465b1 |
 
-**Outcome:** `released = 1.000000 USDC`, `finalized = true`. Worker's lifetime balance after demo run #2 is **3.498 USDC** across 3 distinct jobs.
+**Historical outcome:** the old contract reported `released = 1.000000 USDC`, `finalized = true`. The worker's observed lifetime balance after demo run #2 was **3.498 USDC** across 3 jobs.
 
 ---
 
 ## Demo run #1 (earlier)
 
 
-> **All addresses and tx hashes below are real, on Base Sepolia (chain id 84532).** Every link goes to Basescan. The whole flow ran end-to-end without a human in the loop.
+> The addresses and transaction hashes below are historical Base Sepolia records (chain id 84532). This was an automated scripted-score contract flow, not the paid AI verifier flow.
 
 ## Deployment
 
@@ -53,7 +55,7 @@ Job ID: `0x6c81c13c830e0355488a099420c344006331273bffb115db7301c0d3a332e84d` · 
 
 Wallets funded via the **Coinbase Developer Platform faucet** programmatically (`scripts/fund-via-cdp.ts`).
 
-## End-to-end flow on Base Sepolia
+## Scripted contract flow on Base Sepolia
 
 Job ID `0x3c2a40c43488dc9047f084d295efcd14ce1d1e1c16e0571be08fcc945f8e4091`, budget 2 USDC, 9 checkpoints, threshold 80%.
 
@@ -157,10 +159,10 @@ Content-Type: application/json
 
 | Criterion | Evidence |
 |---|---|
-| **x402 + Base** | All 21 demo txs above, on Base Sepolia. The verifier API is paywalled with `x402-express`, asset = real Circle USDC on Base Sepolia. |
-| **AWS** | `agents/lib/bedrock.ts` (Bedrock Converse + tool use). `infra/lib/scaffold-stack.ts` (CDK: Lambda + API Gateway + CloudFront + DynamoDB + IAM scoping). |
-| **Innovation + real-world relevance** | A composable primitive any agent marketplace can mount. 8 passing Foundry tests + a working live deployment. |
-| **Reusability + developer enablement** | `agents/lib/` is a reusable agent toolkit. `contracts/` is independently usable. CDK template ready to deploy. `scripts/fund-via-cdp.ts` is a reusable CDP-faucet helper. |
+| **x402 + Base** | The listed transactions prove the old scripted Base contract flow. The current x402 middleware and paid client are source-tested surfaces; no receipt here links an x402 fee to a current verifier payout. |
+| **AWS** | The repository contains a wired Lambda handler, DynamoDB audit store and CDK forwarding policy. It is a deployment template, not proof of a live AWS endpoint. |
+| **Contract tests** | The current suite covers escrow isolation, terminal refunds, separate payment/refund accounting, path-independent rounding and fuzzed outflow bounds. |
+| **Integration tests** | Mocked model/chain tests cover authorization, specification binding, score conversion, receipt recovery and idempotent payout. Mocks are not live-service evidence. |
 | **Economic reasoning** | `/pricing` endpoint returns the price catalog so workers can compare. `BEDROCK_MODEL` env picks Nova Pro vs Lite vs Claude per tick. |
 | **Kiro** | `.kiro/specs/scaffold.md` is the durable architecture spec. |
 
