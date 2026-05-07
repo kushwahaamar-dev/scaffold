@@ -25,18 +25,25 @@ function makeSpec(): ScaffoldSpec {
 function mockChain(spec: ScaffoldSpec, receiptStates: Array<'confirmed' | 'failed' | 'unknown'> = ['confirmed']) {
   let progress = 0;
   let writes = 0;
+  let workerPaid = 0n;
+  let buyerRefunded = 0n;
+  let finalized = false;
   const chain: ChainGateway = {
     chainId: spec.chain_id, escrow, arbiter: arbiter.address,
     async readJob() { return {
       buyer: buyer.address, worker: worker.address, arbiter: arbiter.address, token,
-      budget: 1000000n, workerPaid: 0n, buyerRefunded: 0n, deadline: 2000000000n,
-      qualityThresholdBps: 8000, checkpointCount: 1, deposited: true, paused: false, finalized: false, specHash: specHash(spec),
+      budget: 1000000n, workerPaid, buyerRefunded, deadline: 2000000000n,
+      qualityThresholdBps: 8000, checkpointCount: 1, deposited: true, paused: false, finalized, specHash: specHash(spec),
     }; },
     async readProgress() { return { weight: 10000, progress }; },
-    async writeProgress(_job, _index, target) { writes++; progress = target; return `0x${writes.toString(16).padStart(64, '0')}` as Hex; },
+    async writeProgress(_job, _index, target) { writes++; progress = target; workerPaid = BigInt(target * 100); return `0x${writes.toString(16).padStart(64, '0')}` as Hex; },
     async receipt() { return receiptStates.shift() ?? 'confirmed'; },
   };
-  return { chain, writes: () => writes, progress: () => progress };
+  return {
+    chain, writes: () => writes, progress: () => progress,
+    refund: () => { buyerRefunded = 1000000n - workerPaid; finalized = true; },
+    balances: () => ({ workerPaid, buyerRefunded, finalized }),
+  };
 }
 
 async function signedBody(spec: ScaffoldSpec, artifact: string, id: string, idForJob = jobId) {
@@ -54,7 +61,7 @@ const result = (quality: number): ScoreResult[] => [{
 }];
 
 describe('paid verifier integration (mocked model and chain)', () => {
-  it('runs failure, repair, confirmed payout, and idempotent retry', async () => {
+  it('runs failure, repair, confirmed payout, idempotent retry, and remaining refund', async () => {
     const spec = makeSpec();
     const store = new MemoryAuditStore();
     const mock = mockChain(spec);
@@ -65,14 +72,19 @@ describe('paid verifier integration (mocked model and chain)', () => {
     expect(mock.writes()).toBe(0);
 
     const repairedBody = await signedBody(spec, 'repaired', 'submission-repaired');
-    const repaired = await processScoreRequest(repairedBody, { store, chain: mock.chain, model: async () => result(10000) });
+    const repaired = await processScoreRequest(repairedBody, { store, chain: mock.chain, model: async () => result(8000) });
     expect(repaired.state).toBe('confirmed');
-    expect(mock.progress()).toBe(10000);
+    expect(mock.progress()).toBe(8000);
     expect(mock.writes()).toBe(1);
 
     const duplicate = await processScoreRequest(repairedBody, { store, chain: mock.chain, model: async () => { throw new Error('must not rejudge'); } });
     expect(duplicate.state).toBe('confirmed');
     expect(mock.writes()).toBe(1);
+    mock.refund();
+    expect(mock.balances()).toEqual({ workerPaid: 800000n, buyerRefunded: 200000n, finalized: true });
+    await expect(processScoreRequest(await signedBody(spec, 'later', 'submission-after-refund'), {
+      store, chain: mock.chain, model: async () => result(10000),
+    })).rejects.toThrow(/job is not active/);
   });
 
   it('preserves an unknown receipt and reconciles it on retry without a second write', async () => {
