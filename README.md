@@ -7,9 +7,9 @@
 
 | | |
 |---|---|
-| 🎬 **Interactive demo video** | [`docs/demo-video/scaffold-interactive-demo.mp4`](./docs/demo-video/scaffold-interactive-demo.mp4) — *1:20 recording with **visible UI interactions** (typing nonce / worker / arbiter, scrolling panels, hovering buttons) **while 21 real Base Sepolia transactions land in parallel** from `agent:demo`. Worker's lifetime USDC ticks up live on the leaderboard. Final job: [`0x3727…9506`](https://sepolia.basescan.org/address/0xA1e78f0B227feB3a3043302Afb0A45bC5381af32).* |
+| 🎬 **Interactive demo video** | [▶ YouTube interactive demo](https://youtu.be/Cg65GQnaJUg) · [`docs/demo-video/scaffold-interactive-demo.mp4`](./docs/demo-video/scaffold-interactive-demo.mp4) — *1:20 recording with **visible UI interactions** (typing nonce / worker / arbiter, scrolling panels, hovering buttons) **while 21 real Base Sepolia transactions land in parallel** from `agent:demo`. Worker's lifetime USDC ticks up live on the leaderboard. Final job: [`0x3727…9506`](https://sepolia.basescan.org/address/0xA1e78f0B227feB3a3043302Afb0A45bC5381af32).* |
 | 🎬 Earlier silent capture | [`docs/demo-video/scaffold-live-demo.mp4`](./docs/demo-video/scaffold-live-demo.mp4) — 24s capture of the operator's actual Brave window during job `0x6c81…2e84d` |
-| 🎤 **Loom walkthrough** | [▶ Audio narration](https://www.loom.com/share/REPLACE-WITH-LOOM-ID) — *(3-minute Loom recorded over [`docs/demo-video/scaffold-walkthrough.mp4`](./docs/demo-video/scaffold-walkthrough.mp4) using [`docs/demo-video/SCRIPT.md`](./docs/demo-video/SCRIPT.md))* |
+| 🎤 **Video pitch walkthrough** | [▶ YouTube video pitch](https://youtu.be/HxLlB5UDCrc) · [`docs/demo-video/scaffold-walkthrough.mp4`](./docs/demo-video/scaffold-walkthrough.mp4) |
 | 🌐 **Live contract** | [`0xA1e78f0B227feB3a3043302Afb0A45bC5381af32`](https://sepolia.basescan.org/address/0xA1e78f0B227feB3a3043302Afb0A45bC5381af32) on Base Sepolia |
 | 🧾 **21 verified live txs** | see [`DEMO.md`](./DEMO.md) for every Basescan link |
 | 🏆 **Worker leaderboard** | [`0xd3df…1Dd3`](https://sepolia.basescan.org/address/0xd3df327BFa53E30dA2ad81141Cd839B2b0271Dd3) — 2.5 USDC earned |
@@ -55,9 +55,10 @@ What you see during the 24s:
 - Permissionless `finalizeJob` — surplus routes by quality threshold (1 tx)
 - Worker leaderboard ticks up to **3.498 USDC** lifetime earned
 
-### 🎤 Audio walkthrough (Loom)
+### 🎤 Video pitch walkthrough
 
-> [▶ Watch the 3-minute audio walkthrough →](https://www.loom.com/share/REPLACE-WITH-LOOM-ID)
+> [▶ Watch the video pitch on YouTube →](https://youtu.be/HxLlB5UDCrc)  
+> [▶ Watch the interactive demo on YouTube →](https://youtu.be/Cg65GQnaJUg)
 
 Recorded over [`docs/demo-video/scaffold-walkthrough.mp4`](./docs/demo-video/scaffold-walkthrough.mp4) using the timed script at [`docs/demo-video/SCRIPT.md`](./docs/demo-video/SCRIPT.md). Covers:
 
