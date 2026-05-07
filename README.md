@@ -7,7 +7,8 @@
 
 | | |
 |---|---|
-| 🎬 **Demo video** | [▶ Loom walkthrough](https://www.loom.com/share/REPLACE-WITH-LOOM-ID) — *3-minute audio walkthrough: architecture, repo tour, end-to-end demo* |
+| 🎬 **Live demo video** | [`docs/demo-video/scaffold-live-demo.mp4`](./docs/demo-video/scaffold-live-demo.mp4) — *24-second screen recording captured while [21 real Base Sepolia transactions](./DEMO.md) landed in real time. Job `0x6c81…2e84d` finalized live during the recording.* |
+| 🎤 **Loom walkthrough** | [▶ Audio narration](https://www.loom.com/share/REPLACE-WITH-LOOM-ID) — *(3-minute Loom recorded over [`docs/demo-video/scaffold-walkthrough.mp4`](./docs/demo-video/scaffold-walkthrough.mp4) using [`docs/demo-video/SCRIPT.md`](./docs/demo-video/SCRIPT.md))* |
 | 🌐 **Live contract** | [`0xA1e78f0B227feB3a3043302Afb0A45bC5381af32`](https://sepolia.basescan.org/address/0xA1e78f0B227feB3a3043302Afb0A45bC5381af32) on Base Sepolia |
 | 🧾 **21 verified live txs** | see [`DEMO.md`](./DEMO.md) for every Basescan link |
 | 🏆 **Worker leaderboard** | [`0xd3df…1Dd3`](https://sepolia.basescan.org/address/0xd3df327BFa53E30dA2ad81141Cd839B2b0271Dd3) — 2.5 USDC earned |
@@ -28,15 +29,35 @@ Reputation = lifetime released USDC, indexed off `ReleaseStreamed` events.
 
 ## 2 · Demo video & screenshots
 
-### 🎬 Loom walkthrough
+### 🎬 Live demo recording (real on-chain transactions)
 
-> **[Watch the 3-minute audio walkthrough on Loom →](https://www.loom.com/share/REPLACE-WITH-LOOM-ID)**
+> **[`docs/demo-video/scaffold-live-demo.mp4`](./docs/demo-video/scaffold-live-demo.mp4)** — 24-second screen capture of the actual operator's Brave browser **while 21 real Base Sepolia transactions land** in front of them. Job ID: `0x6c81c13c830e0355488a099420c344006331273bffb115db7301c0d3a332e84d`.
 
-Covers, in order:
+The recording was orchestrated by [`scripts/record-live-demo.sh`](./scripts/record-live-demo.sh):
+1. Counts down 7 seconds → starts ffmpeg full-screen capture (avfoundation)
+2. Launches [`npm run agent:demo`](./agents/demo-runner.ts) — the autonomous 3-act on-chain runner
+3. **The dashboard's wagmi hooks refetch on every block**, so the user's already-open Brave tab updates live as each `releaseStreamed` confirms
+4. Stops recording when the permissionless `finalizeJob` lands
+
+What you see during the 24s:
+- Initialize → approve → deposit (3 txs)
+- Stream first 4 checkpoints at full weight (4 txs)
+- Pause stream — failure act (1 tx)
+- Unpause (1 tx)
+- Stream remaining 5 checkpoints at 80% then 100% (10 txs)
+- Permissionless `finalizeJob` — surplus routes by quality threshold (1 tx)
+- Worker leaderboard ticks up to **3.498 USDC** lifetime earned
+
+### 🎤 Audio walkthrough (Loom)
+
+> [▶ Watch the 3-minute audio walkthrough →](https://www.loom.com/share/REPLACE-WITH-LOOM-ID)
+
+Recorded over [`docs/demo-video/scaffold-walkthrough.mp4`](./docs/demo-video/scaffold-walkthrough.mp4) using the timed script at [`docs/demo-video/SCRIPT.md`](./docs/demo-video/SCRIPT.md). Covers:
+
 1. The problem (broken human-mediated freelance escrow)
 2. Repo structure tour (`contracts/`, `src/`, `agents/`, `infra/`, `.kiro/`)
 3. UI walkthrough — every panel, every button
-4. Live `agent:demo` end-to-end run on Base Sepolia
+4. Live `agent:demo` end-to-end run on Base Sepolia (the recording above)
 5. The x402 paywall returning `HTTP 402` and the worker re-paying
 6. The Bedrock-judged scoring loop driving on-chain releases
 7. How Kiro was used to scaffold and extend the project

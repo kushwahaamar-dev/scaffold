@@ -1,5 +1,39 @@
 # Scaffold — verified live demo on Base Sepolia
 
+## Demo run #2 (recorded 2026-05-07, captured in `docs/demo-video/scaffold-live-demo.mp4`)
+
+Job ID: `0x6c81c13c830e0355488a099420c344006331273bffb115db7301c0d3a332e84d` · Budget 1 USDC · Threshold 80% · 9 checkpoints · finalized: ✅
+
+| # | Step | Tx |
+|---|---|---|
+|  1 | `initialize` | https://sepolia.basescan.org/tx/0xdff27f56678c96675695dca250c192228bcaa48f7c528b7cdff4051f6110c5ff |
+|  2 | `approve` | https://sepolia.basescan.org/tx/0xc7d5ac338a7b842c9534d0db397b240284c7a900cbb826b7447f36c6d38e5c8d |
+|  3 | `deposit` | https://sepolia.basescan.org/tx/0x16df2dde4f88c25a1fdf59fceecc7eb8f1542279060b4276a423c9a498cb227e |
+|  4 | release cp[0] @ 1000bps | https://sepolia.basescan.org/tx/0x51dd1603cab4123a562d6ab3fb82192e91a5d0bc6413712148bc86b380cc1540 |
+|  5 | release cp[1] @ 800bps | https://sepolia.basescan.org/tx/0x3c81dab7633fa4dbec793cced86787c257fec87fe5e3a1388b57de29032b1904 |
+|  6 | release cp[2] @ 800bps | https://sepolia.basescan.org/tx/0xb21606a40141e1d4e1cbed3f93ba3365d9b315f6936c9063b5fe9c07f8998dd7 |
+|  7 | release cp[3] @ 600bps | https://sepolia.basescan.org/tx/0x81385d9c844e5802f51e97dcd973f6cc0448af38e853963565cdedf3a9196149 |
+|  8 | `setPause(true)` | https://sepolia.basescan.org/tx/0x9d3137056ba89c4ad3b39ef6480d45c3e039bd0b13d4e4dfa5d66a2feb7c05cb |
+|  9 | `setPause(false)` | https://sepolia.basescan.org/tx/0x199131ae5c100f9ddaaa1eb252eded4f43d32dbacbd177d2e572887a6d439b75 |
+| 10 | release cp[4] @ 1734bps (80%) | https://sepolia.basescan.org/tx/0x4d885f826e17002cc174589f24a35b3521be98d58fc367fa2088c39768ee0146 |
+| 11 | release cp[4] @ 2167bps (100%) | https://sepolia.basescan.org/tx/0xc3caeb229dd9e3c2a6d550b055793a4dab3114504a27d6cedae5e69be5267f8b |
+| 12 | release cp[5] @ 506bps (80%) | https://sepolia.basescan.org/tx/0xe7611e0d5a1dbe556491d72209c3960688e65f65035f6c1a0c37771b990a2a12 |
+| 13 | release cp[5] @ 633bps (100%) | https://sepolia.basescan.org/tx/0x122462ac2cc58b3ddb33e119f39419fc4c6ae2fa0cd34fae8127106d56b2667c |
+| 14 | release cp[6] @ 800bps (80%) | https://sepolia.basescan.org/tx/0xcdf4ae7b84abe1759f6d369d8c18e495502d3cc6fdcab54a7b5f934e792bab12 |
+| 15 | release cp[6] @ 1000bps (100%) | https://sepolia.basescan.org/tx/0xf470efeb73b6fe4f0080da8f734763ee5d7b3ea6c9e3c0c32ed56de0eb3aacbe |
+| 16 | release cp[7] @ 400bps (80%) | https://sepolia.basescan.org/tx/0x561b306003370a5cbc9d84eb8a5ff82a969c46b64c233ce061ad8ec2ee1728ab |
+| 17 | release cp[7] @ 500bps (100%) | https://sepolia.basescan.org/tx/0xdd98f9bbdda9f24b149d5f6e11b6b9f120ac765ba076b34b7d85dbc205d18476 |
+| 18 | release cp[8] @ 2000bps (80%) | https://sepolia.basescan.org/tx/0xa7e20321e4581382bf7c7cb86fb4f98f284cfcb4814b118e5adeff96c933f5f4 |
+| 19 | release cp[8] @ 2500bps (100%) | https://sepolia.basescan.org/tx/0xbb0cef7b2d0e22469562245e6b2914c54e1a6179650955ab725321dd36164652 |
+| 20 | `finalizeJob` | https://sepolia.basescan.org/tx/0xbabc6ac64022b4e35e4f90368176c421c8bb0567897f19aefb0a51b2a9f465b1 |
+
+**Outcome:** `released = 1.000000 USDC`, `finalized = true`. Worker's lifetime balance after demo run #2 is **3.498 USDC** across 3 distinct jobs.
+
+---
+
+## Demo run #1 (earlier)
+
+
 > **All addresses and tx hashes below are real, on Base Sepolia (chain id 84532).** Every link goes to Basescan. The whole flow ran end-to-end without a human in the loop.
 
 ## Deployment
