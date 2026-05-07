@@ -4,6 +4,20 @@
 
 [![ci](https://github.com/kushwahaamar-dev/scaffold/actions/workflows/ci.yml/badge.svg)](https://github.com/kushwahaamar-dev/scaffold/actions/workflows/ci.yml)
 
+## ⚡ Live deployment
+
+| | |
+|---|---|
+| Contract on Base Sepolia | [`0xA1e78f0B227feB3a3043302Afb0A45bC5381af32`](https://sepolia.basescan.org/address/0xA1e78f0B227feB3a3043302Afb0A45bC5381af32) |
+| 21 demo transactions verified live | see [`DEMO.md`](./DEMO.md) for every Basescan link |
+| Front-end | `npm run dev` → `http://localhost:5173/` |
+| x402 paywalled API | `npm run agent:verifier:server` → `http://localhost:4021/` |
+| 3-act on-chain demo | `RESUME_JOB_ID=0x... npm run agent:demo` |
+| Foundry tests | `forge test` (8/8 pass) |
+| Front-end tests | `npm test` (5/5 pass) |
+
+![Scaffold dashboard](./docs/screenshots/dashboard-hero.png)
+
 ```
 ┌────────────┐    POST /score (HTTP 402)            ┌──────────────────┐
 │ Worker     │ ───────────────────────────────────► │ x402 paywall     │

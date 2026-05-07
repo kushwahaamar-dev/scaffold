@@ -25,9 +25,10 @@ export function Leaderboard() {
     const refresh = async () => {
       setBusy(true); setErr(null);
       try {
-        // Pull all release events in the last ~10000 blocks (~5 hours on Base).
+        // Pull recent release events. Public Base Sepolia RPC caps log
+        // queries to a small block range; 5_000 blocks ≈ 2.5 hours on Base.
         const head = await publicClient.getBlockNumber();
-        const fromBlock = head > 100_000n ? head - 100_000n : 0n;
+        const fromBlock = head > 5_000n ? head - 5_000n : 0n;
         const events = await publicClient.getContractEvents({
           address: escrowAddr,
           abi: SCAFFOLD_ESCROW_ABI,

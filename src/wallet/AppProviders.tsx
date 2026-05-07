@@ -2,15 +2,22 @@ import { type ReactNode } from 'react';
 import { WagmiProvider, createConfig, http } from 'wagmi';
 import { base, baseSepolia } from 'wagmi/chains';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { RainbowKitProvider, getDefaultConfig, darkTheme } from '@rainbow-me/rainbowkit';
+import { RainbowKitProvider, darkTheme, connectorsForWallets } from '@rainbow-me/rainbowkit';
+import { injectedWallet } from '@rainbow-me/rainbowkit/wallets';
 
 import '@rainbow-me/rainbowkit/styles.css';
 
-const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID ?? 'scaffold-demo';
+// Only injectedWallet is used so the dApp doesn't depend on a WalletConnect
+// Cloud project ID. MetaMask + Coinbase Wallet + Rainbow all support EIP-1193
+// injection and connect through this single wallet entry. Set
+// VITE_WALLETCONNECT_PROJECT_ID later if you want to add WC-based connectors.
+const connectors = connectorsForWallets(
+  [{ groupName: 'Browser', wallets: [injectedWallet] }],
+  { appName: 'Scaffold', projectId: 'no-walletconnect' },
+);
 
-const config = getDefaultConfig({
-  appName: 'Scaffold',
-  projectId,
+const config = createConfig({
+  connectors,
   chains: [baseSepolia, base],
   transports: {
     [baseSepolia.id]: http(),
@@ -32,7 +39,3 @@ export function AppProviders({ children }: { children: ReactNode }) {
     </WagmiProvider>
   );
 }
-
-// Workaround: getDefaultConfig sometimes warns about unused exports — keep
-// `createConfig` in scope so wagmi peer-dep tree-shaking doesn't drop it.
-void createConfig;
