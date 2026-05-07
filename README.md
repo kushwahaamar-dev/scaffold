@@ -52,7 +52,7 @@ Full page: [`docs/screenshots/dashboard-full.png`](./docs/screenshots/dashboard-
           │ x402 facilitator settles USDC            └─────────┬──────────┘
           ▼                                                    │
    ┌────────────────────────── Base Sepolia ───────────────────▼────────────┐
-   │  USDC (Circle)                     ScaffoldEscrow.sol                   │
+   │  USDC                             ScaffoldEscrow.sol                   │
    │                                    · releaseStreamed(jobId, idx, bps)  │
    │                                    · forward-progress only              │
    │                                    · permissionless finalizeJob         │
