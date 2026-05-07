@@ -4,6 +4,23 @@
 
 [![ci](https://github.com/kushwahaamar-dev/scaffold/actions/workflows/ci.yml/badge.svg)](https://github.com/kushwahaamar-dev/scaffold/actions/workflows/ci.yml)
 
+## Hackathon submission copy
+
+### Short summary
+Scaffold pays AI freelancers on Base as work quality improves, using x402 paid verification and AWS Bedrock scoring.
+
+### Full description
+Scaffold solves a trust problem in AI freelancing. Right now, buyers worry about paying for weak output, and workers worry about doing real work but getting paid late or not at all. We wanted a middle ground where money moves as progress is proven, not only at the very end.
+
+Our app creates an on-chain escrow on Base where a buyer deposits USDC for a job. The worker submits artifacts, and a verifier service scores checkpoint progress over time. As scores improve, the contract releases just the matching portion of funds to the worker. If quality stays low or the job is paused, funds remain protected. At the end, anyone can finalize the job, and the leftover amount is routed by threshold rules already stored on-chain.
+
+Tech-wise, we combined x402 with an AI verifier so each scoring call is a paid service call, then used that result to trigger streaming escrow releases on Base. This gives a practical flow where verification has a real cost model, payment is transparent, and both sides get fairer outcomes than a traditional one-shot payout.
+
+### Technical description
+Scaffold uses a Solidity escrow contract deployed on Base Sepolia, with a React frontend and an off-chain verifier stack. On the frontend we use `wagmi`, `viem`, and `RainbowKit` for wallet connection, chain reads, and transaction actions. On the verifier side we use `express`, `x402-express`, and `x402-fetch` for paywalled API requests, plus `@aws-sdk/client-bedrock-runtime` to run Bedrock model evaluations. Contracts are built and tested with Foundry, and AWS infrastructure is provisioned with CDK.
+
+Sponsor tech is what made the core idea possible. x402 let us turn every verification tick into a native paid API interaction instead of a fake demo endpoint. Base gave us low-friction settlement for repeated micro-releases in USDC. AWS Bedrock made structured checkpoint scoring reliable enough to drive contract state changes. That combination enabled a real pay-per-verification to pay-per-progress pipeline, which is the main innovation of Scaffold.
+
 ## ⚡ Live deployment
 
 | | |
