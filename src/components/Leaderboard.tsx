@@ -81,7 +81,7 @@ export function Leaderboard() {
   }, [chainId, publicClient]);
 
   return (
-    <section className="chain-section" aria-label="Worker leaderboard">
+    <section id="leaderboard" className="chain-section" aria-label="Worker leaderboard">
       <div className="chain-head">
         <div>
           <p className="section-label">Worker leaderboard</p>

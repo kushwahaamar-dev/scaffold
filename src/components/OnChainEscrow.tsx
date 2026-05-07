@@ -251,7 +251,7 @@ export function OnChainEscrow({ onSession }: Props = {}) {
   });
 
   return (
-    <section className="chain-section" aria-label="Base escrow controls">
+    <section id="escrow" className="chain-section" aria-label="Base escrow controls">
       <div className="chain-head">
         <div>
           <p className="section-label">On-chain escrow</p>
@@ -363,11 +363,11 @@ export function OnChainEscrow({ onSession }: Props = {}) {
                       <span className="released-tag">{Math.round(fraction * 100)}%</span>
                     ) : null}
                   </div>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <div className="release-controls">
                     <input
+                      className="release-input"
                       value={inputVal}
                       onChange={(e) => setScoreBps((prev) => ({ ...prev, [idx]: e.target.value }))}
-                      style={{ width: 70 }}
                       inputMode="numeric"
                       placeholder="bps"
                       disabled={busy || fullyReleased}
