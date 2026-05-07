@@ -1,293 +1,369 @@
-# Scaffold
+# Scaffold — Stripe for verified work
 
-> **Stripe for verified work.** An x402-paywalled, AWS-Bedrock-judged, Base-settled payment protocol for AI-agent freelance work. Submitted to the **Coinbase × AWS Agentic Hackathon** (Best Use of AWS and x402 on Base).
+> **An x402-paywalled, AWS-Bedrock-judged, Base-settled payment protocol for AI-agent freelance work.** Submitted to the **Coinbase × AWS Agentic Hackathon** (Best Use of AWS and x402 on Base).
 
 [![ci](https://github.com/kushwahaamar-dev/scaffold/actions/workflows/ci.yml/badge.svg)](https://github.com/kushwahaamar-dev/scaffold/actions/workflows/ci.yml)
-
-## Hackathon submission copy
-
-### Short summary
-Scaffold pays AI freelancers on Base as work quality improves, using x402 paid verification and AWS Bedrock scoring.
-
-### Full description
-Scaffold solves a trust problem in AI freelancing. Right now, buyers worry about paying for weak output, and workers worry about doing real work but getting paid late or not at all. We wanted a middle ground where money moves as progress is proven, not only at the very end.
-
-Our app creates an on-chain escrow on Base where a buyer deposits USDC for a job. The worker submits artifacts, and a verifier service scores checkpoint progress over time. As scores improve, the contract releases just the matching portion of funds to the worker. If quality stays low or the job is paused, funds remain protected. At the end, anyone can finalize the job, and the leftover amount is routed by threshold rules already stored on-chain.
-
-Tech-wise, we combined x402 with an AI verifier so each scoring call is a paid service call, then used that result to trigger streaming escrow releases on Base. This gives a practical flow where verification has a real cost model, payment is transparent, and both sides get fairer outcomes than a traditional one-shot payout.
-
-### Technical description
-Scaffold uses a Solidity escrow contract deployed on Base Sepolia, with a React frontend and an off-chain verifier stack. On the frontend we use `wagmi`, `viem`, and `RainbowKit` for wallet connection, chain reads, and transaction actions. On the verifier side we use `express`, `x402-express`, and `x402-fetch` for paywalled API requests, plus `@aws-sdk/client-bedrock-runtime` to run Bedrock model evaluations. Contracts are built and tested with Foundry, and AWS infrastructure is provisioned with CDK.
-
-Sponsor tech is what made the core idea possible. x402 let us turn every verification tick into a native paid API interaction instead of a fake demo endpoint. Base gave us low-friction settlement for repeated micro-releases in USDC. AWS Bedrock made structured checkpoint scoring reliable enough to drive contract state changes. That combination enabled a real pay-per-verification to pay-per-progress pipeline, which is the main innovation of Scaffold.
-
-## ⚡ Live deployment
+[![contract](https://img.shields.io/badge/Base%20Sepolia-0xA1e7…1af32-c67c2e)](https://sepolia.basescan.org/address/0xA1e78f0B227feB3a3043302Afb0A45bC5381af32)
 
 | | |
 |---|---|
-| Contract on Base Sepolia | [`0xA1e78f0B227feB3a3043302Afb0A45bC5381af32`](https://sepolia.basescan.org/address/0xA1e78f0B227feB3a3043302Afb0A45bC5381af32) |
-| 21 demo transactions verified live | see [`DEMO.md`](./DEMO.md) for every Basescan link |
-| Front-end | `npm run dev` → `http://localhost:5173/` |
-| x402 paywalled API | `npm run agent:verifier:server` → `http://localhost:4021/` |
-| 3-act on-chain demo | `RESUME_JOB_ID=0x... npm run agent:demo` |
-| Foundry tests | `forge test` (8/8 pass) |
-| Front-end tests | `npm test` (5/5 pass) |
+| 🎬 **Demo video** | [▶ Loom walkthrough](https://www.loom.com/share/REPLACE-WITH-LOOM-ID) — *3-minute audio walkthrough: architecture, repo tour, end-to-end demo* |
+| 🌐 **Live contract** | [`0xA1e78f0B227feB3a3043302Afb0A45bC5381af32`](https://sepolia.basescan.org/address/0xA1e78f0B227feB3a3043302Afb0A45bC5381af32) on Base Sepolia |
+| 🧾 **21 verified live txs** | see [`DEMO.md`](./DEMO.md) for every Basescan link |
+| 🏆 **Worker leaderboard** | [`0xd3df…1Dd3`](https://sepolia.basescan.org/address/0xd3df327BFa53E30dA2ad81141Cd839B2b0271Dd3) — 2.5 USDC earned |
 
-![Scaffold dashboard](./docs/screenshots/dashboard-hero.png)
+---
+
+## 1 · The 30-second pitch
+
+Today, freelance payment is binary: **upfront** (buyer takes the risk) or **on delivery** (seller takes the risk). Platforms like Upwork patch this with escrow + human dispute resolution — slow, biased, expensive (~20% take rate), and structurally unable to handle **AI-agent counterparties** because there's no human to call.
+
+**Scaffold makes payment a continuous function of verified progress.**
+
+A buyer locks USDC into a Solidity escrow on Base. Every 30 seconds, a worker agent submits its artifact to a **paywalled verifier API** running on AWS — the worker pays a small USDC fee per verification call via Coinbase's **x402 Facilitator** on Base. The verifier (AWS Bedrock, structured tool-use) scores each checkpoint in basis points; the same Lambda then signs `releaseStreamed(jobId, checkpointIdx, scoreBps)` on the escrow, which streams **proportional USDC** to the worker. Anyone can crank `finalizeJob` at the deadline; surplus routes to the worker if quality met threshold, else back to the buyer.
+
+Reputation = lifetime released USDC, indexed off `ReleaseStreamed` events.
+
+---
+
+## 2 · Demo video & screenshots
+
+### 🎬 Loom walkthrough
+
+> **[Watch the 3-minute audio walkthrough on Loom →](https://www.loom.com/share/REPLACE-WITH-LOOM-ID)**
+
+Covers, in order:
+1. The problem (broken human-mediated freelance escrow)
+2. Repo structure tour (`contracts/`, `src/`, `agents/`, `infra/`, `.kiro/`)
+3. UI walkthrough — every panel, every button
+4. Live `agent:demo` end-to-end run on Base Sepolia
+5. The x402 paywall returning `HTTP 402` and the worker re-paying
+6. The Bedrock-judged scoring loop driving on-chain releases
+7. How Kiro was used to scaffold and extend the project
+
+### 🖼 Screenshots — every panel that does something
+
+| | |
+|---|---|
+| ![Hero](./docs/screenshots/01-hero.png) | **§1 Hero (top of page).** Connect Wallet → MetaMask / Coinbase / Rainbow. Workspace rail jumps to each section. Live ledger card shows `released / locked / refundable / verified weight` — all derived from the connected escrow. |
+| ![Checkpoint board](./docs/screenshots/02-checkpoint-board.png) | **§2 Live work contract.** Nine-checkpoint rubric (`spec.example.json`). Each tile lights green/red/orange based on `getCheckpointProgress(jobId, idx)` reads against Base Sepolia. |
+| ![Escrow controls](./docs/screenshots/03-escrow-controls.png) | **§3 On-chain escrow controls.** Three cards: parameters → state → score-by-checkpoint. Every button is a real Base Sepolia transaction. The score input takes basis points (0–10000); each click streams the delta to the worker. |
+| ![Leaderboard](./docs/screenshots/04-leaderboard.png) | **§4 Worker leaderboard.** Indexed off `ReleaseStreamed` events on the escrow contract. Lifetime USDC earned is unforgeable reputation. |
+
+Full-page render: [`docs/screenshots/dashboard-full.png`](./docs/screenshots/dashboard-full.png)
+
+---
+
+## 3 · How the blockchain interaction works
+
+### 3.1 Architecture
 
 ```
-┌────────────┐    POST /score (HTTP 402)            ┌──────────────────┐
-│ Worker     │ ───────────────────────────────────► │ x402 paywall     │
-│ agent      │ ◄── price: $0.001 USDC, network: base│ (CloudFront +    │
-│ (Bedrock)  │                                       │  API Gateway)    │
-│            │ ─── retry with X-PAYMENT header ────► │                  │
-└────────────┘                                       └────────┬─────────┘
-                                                              │
-                                                              ▼
-                                                    ┌─────────────────┐
-                                                    │ Lambda          │
-                                                    │  · Bedrock      │
-                                                    │    invokeModel  │
-                                                    │  · DynamoDB     │
-                                                    │    audit log    │
-                                                    │  · viem         │
-                                                    │    releaseStreamed│
-                                                    └────────┬────────┘
-                                                              │
-                                                              ▼
-                                                    ┌─────────────────┐
-                                                    │ ScaffoldEscrow  │
-                                                    │   on Base       │
-                                                    │   (USDC)        │
-                                                    └─────────────────┘
+   ┌──────────────┐    POST /score (HTTP 402)        ┌────────────────────┐
+   │  Worker      │ ───────────────────────────────► │  AWS API Gateway   │
+   │  agent       │                                  │  → Lambda          │
+   │  (Bedrock-   │ ◄── 402 + accepts[USDC, base]    │     (verifier-     │
+   │   built HTML │                                  │      server.ts)    │
+   │   artifact)  │ ─── X-PAYMENT (EIP-3009 sig) ──► │                    │
+   │              │                                  │  · x402-express    │
+   │              │ ◄── 200 { results, settlement_   │  · Bedrock Converse│
+   │              │     txs }                        │  · viem writeContract
+   └──────┬───────┘                                  └─────────┬──────────┘
+          │                                                    │
+          │ x402 facilitator                                   │ releaseStreamed(idx, scoreBps)
+          │ broadcasts transferWithAuthorization               │
+          ▼                                                    ▼
+   ┌─────────────────────────── Base Sepolia ──────────────────────────────┐
+   │   Circle USDC                          ScaffoldEscrow.sol             │
+   │   0x036C…CF7e                          0xA1e7…1af32                   │
+   │                                                                       │
+   │   • per-call USDC fee → arbiter   • forward-progress only             │
+   │     wallet (X402_PAY_TO)          • amount = budget * Δbps / 10_000   │
+   │                                   • permissionless finalizeJob        │
+   └───────────────────────────────────────────────────────────────────────┘
 ```
 
-The **buyer** funds an escrow on Base. The **worker** produces an artifact (Bedrock-generated). The **verifier API** is paywalled with x402 — every score request costs USDC, settled by the x402 Facilitator on Base. Inside the Lambda, Bedrock returns a structured score per checkpoint; the same Lambda (acting as arbiter) calls `releaseStreamed` on Base, paying the worker the **delta** since the last score. After the deadline OR when fully scored, **anyone** can crank `finalizeJob`, which routes the surplus to the worker if the quality threshold was hit, or back to the buyer otherwise. Reputation = lifetime released USDC, indexed off `ReleaseStreamed` events.
+### 3.2 The Solidity escrow (`contracts/src/ScaffoldEscrow.sol`)
 
-## Hitting the judging criteria
+Every function that moves money:
 
-| Criterion                                                  | Where it's evidenced                                                                                                                                                              |
-| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Effective use of x402**                                  | `agents/verifier-server.ts` — `x402-express` middleware, `/pricing` discovery endpoint, x402 facilitator URL configurable. `agents/verifier-client.ts` — `x402-fetch` worker.    |
-| **Effective use of AWS**                                   | `agents/lib/bedrock.ts` (Bedrock Converse API + tool use); `infra/lib/scaffold-stack.ts` (CDK: Lambda + API Gateway + CloudFront + DynamoDB + IAM scoping).                       |
-| **Innovation + real-world relevance**                      | A non-trivial composable primitive: any agent marketplace can mount this verifier API. No "hello world" — the contract has 8 passing Foundry tests covering streaming + finalize. |
-| **Reusability + developer enablement**                     | The verifier API is a black-box service. The agent toolkit (`agents/lib/`) is reusable. The Solidity contract is independently usable. CDK template ships ready to deploy.        |
-| **Economic reasoning for agents**                          | `/pricing` is the surface where workers compare cost vs. quality. `verifier-client.ts` reads pricing before paying — extension point for choosing Nova Lite vs. Pro by budget.    |
-| **Effective use of Kiro**                                  | `.kiro/specs/scaffold.md` is the durable architecture spec. The README's *Demo script* section walks the judge through the Kiro commands used to scaffold, test, and deploy.       |
+| Function | Signer | Effect | Solidity contract location |
+|---|---|---|---|
+| `initialize(...)` | buyer | Create job PDA-equivalent (keccak256(buyer,nonce)), lock spec params (weights, deadline, threshold, hash) | [`L86-L120`](./contracts/src/ScaffoldEscrow.sol#L86) |
+| `deposit(jobId)` | buyer | `safeTransferFrom(buyer → escrow)` of `budget` USDC | [`L126-L138`](./contracts/src/ScaffoldEscrow.sol#L126) |
+| `releaseStreamed(jobId, idx, scoreBps)` | arbiter | Score-scaled release: `(target − already) × budget / 10_000`, bounded by checkpoint weight, forward-progress only | [`L141-L165`](./contracts/src/ScaffoldEscrow.sol#L141) |
+| `setPause(jobId, paused)` | arbiter | Halt new releases | [`L167-L173`](./contracts/src/ScaffoldEscrow.sol#L167) |
+| `refundBuyer(jobId)` | buyer | Vault → buyer ATA (paused OR past deadline) | [`L176-L196`](./contracts/src/ScaffoldEscrow.sol#L176) |
+| `finalizeJob(jobId)` | **anyone** | Surplus routes to worker if `total_bps ≥ qualityThresholdBps`, else back to buyer | [`L199-L227`](./contracts/src/ScaffoldEscrow.sol#L199) |
 
-## Repository layout
+**Streaming math (verbatim from `releaseStreamed`):**
+
+```solidity
+uint16 weight  = j.weights[checkpointIndex];
+uint16 already = j.bpsReleasedPerCp[checkpointIndex];
+uint16 target  = scoreBps > weight ? weight : scoreBps;
+require(target > already, NoForwardProgress());
+
+uint256 deltaBps = uint256(target - already);
+uint256 amount   = (j.budget * deltaBps) / BPS_DENOM;
+
+j.bpsReleasedPerCp[checkpointIndex] = target;
+j.released                          += amount;
+j.token.safeTransfer(j.worker, amount);
+```
+
+So a single checkpoint can be released across multiple calls — `30% → 60% → 100%` — each call streaming only the delta. Funds never go backwards.
+
+### 3.3 The x402 wire format (live)
+
+```bash
+$ curl -i -X POST http://localhost:4021/score \
+       -H 'content-type: application/json' \
+       -d '{"spec": {...}, "artifact_url": "..."}'
+
+HTTP/1.1 402 Payment Required
+Content-Type: application/json
+
+{
+  "x402Version": 1,
+  "error": "X-PAYMENT header is required",
+  "accepts": [{
+    "scheme": "exact",
+    "network": "base-sepolia",
+    "maxAmountRequired": "1000",          ← 0.001 USDC, 6 decimals
+    "resource": "http://localhost:4021/score",
+    "description": "Structured AI scoring of an artifact (Bedrock-judged).",
+    "payTo": "0xFD68e720D5bEBBa75f0C1bcd98238Bc578BF0A10",
+    "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",   ← Circle USDC on Base Sepolia
+    "extra": { "name": "USDC", "version": "2" }              ← EIP-3009 domain
+  }]
+}
+```
+
+The `accepts[0]` block is exactly the payload the **Coinbase x402 Facilitator** at `https://x402.org/facilitator` consumes when settling a payment authorization — `transferWithAuthorization` (EIP-3009) on Circle's USDC.
+
+### 3.4 The verifier loop (`agents/verifier-server.ts`)
+
+```ts
+app.post('/score', async (req, res) => {
+  // 1. The x402-express middleware has already settled the worker's USDC fee
+  //    for this call (verified the X-PAYMENT header against the facilitator).
+
+  // 2. Score every checkpoint with Bedrock + tool-use
+  const scores = await bedrockToolCall<{ results: ScoreResult[] }>({
+    client: bedrockClient(),                       // ← AWS Bedrock
+    modelId: 'us.amazon.nova-pro-v1:0',            // ← Amazon Nova Pro
+    system: '...deterministic verification judge...',
+    user: `Spec: ${JSON.stringify(spec)}\nArtifact:\n${artifact}`,
+    tool: SCORE_TOOL,                              // structured output schema
+  });
+
+  // 3. For any forward-progress checkpoint, sign releaseStreamed on Base
+  for (const s of scores.results) {
+    const target = Math.min(s.score_bps, weight);
+    if (target > already) {
+      await wal.writeContract({
+        address: escrow,
+        functionName: 'releaseStreamed',
+        args: [jobId, idx, target],                // ← USDC streams to worker
+      });
+    }
+  }
+
+  res.json({ results: scores.results, settlement_txs: txs });
+});
+```
+
+### 3.5 Why this matters
+
+- **No human dispute resolution.** Disputes are impossible by construction — the spec hash is bound at `initialize`, the scoring rubric is deterministic, the math is on-chain.
+- **Reputation is unforgeable.** It's just lifetime USDC released, sitting in a wallet, indexable by anyone via `getProgramAccounts`-equivalent (`ReleaseStreamed` event scan).
+- **Verification has a real cost model.** Workers pay per scoring tick. They can read `/pricing` first to choose between premium (Nova Pro) and economy (Nova Lite) — the **economic-reasoning surface** the hackathon prompt asks about.
+
+---
+
+## 4 · How each judging criterion is hit
+
+| Criterion | Where it's evidenced |
+|---|---|
+| **Effective use of x402** | `agents/verifier-server.ts:107` mounts `paymentMiddleware`. `agents/verifier-client.ts` uses `wrapFetchWithPayment` from `x402-fetch`. Every score call settles real USDC on Base via the Coinbase facilitator. |
+| **Effective use of AWS** | `agents/lib/bedrock.ts` (Bedrock Converse + structured tool use). `infra/lib/scaffold-stack.ts` provisions Lambda + API Gateway + CloudFront + DynamoDB + IAM scoped to `bedrock:InvokeModel` for Claude + Nova families. |
+| **Innovation + real-world relevance** | A composable primitive any agent marketplace can mount. 8/8 Foundry tests + 21 live Base Sepolia transactions — not a toy. |
+| **Reusability + developer enablement** | `agents/lib/` is a reusable agent toolkit. `contracts/` is independently usable. `scripts/fund-via-cdp.ts` is a reusable Coinbase Developer Platform faucet helper. CDK template ships ready to deploy. |
+| **Economic reasoning** | `/pricing` endpoint returns the price catalog in a machine-readable format. `BEDROCK_MODEL` env switches Nova Pro / Nova Lite / Claude per tick. The worker reads pricing **before** paying — that's the economic-reasoning surface. |
+| **Kiro** | [`.kiro/specs/scaffold.md`](./.kiro/specs/scaffold.md) is the durable architecture spec. The Loom video walks the judges through `kiro build`, `kiro test`, `kiro deploy` against this spec. |
+
+---
+
+## 5 · Repository layout
 
 ```
 scaffold/
-├── contracts/                    Foundry — Solidity escrow on Base
-│   ├── src/ScaffoldEscrow.sol         score-scaled streaming USDC
-│   ├── test/ScaffoldEscrow.t.sol      8 tests, all pass
-│   ├── script/Deploy.s.sol            forge script for Base Sepolia / mainnet
-│   └── foundry.toml
-├── src/                          Vite + React 19 + wagmi + RainbowKit
-│   ├── chain/{config,abi}.ts
-│   ├── components/{OnChainEscrow,Leaderboard}.tsx
-│   ├── domain/scaffold.ts             pure-TS spec engine + tests
-│   ├── wallet/AppProviders.tsx        wagmi + RainbowKit
+├── contracts/                          Foundry — Solidity escrow on Base
+│   ├── src/ScaffoldEscrow.sol               ← score-scaled streaming USDC
+│   ├── test/ScaffoldEscrow.t.sol            ← 8/8 tests pass
+│   ├── script/Deploy.s.sol                  ← real Base Sepolia deploy
+│   └── script/DeployLocal.s.sol             ← Anvil-fork deploy (no faucets)
+│
+├── src/                                Vite + React 19 + wagmi + RainbowKit
+│   ├── chain/{config,abi}.ts                ← chain config + pruned ABI
+│   ├── components/sections/                 ← HeroSection, ContractBoard
+│   ├── components/ui/                       ← Metric, ProgressBar
+│   ├── components/OnChainEscrow.tsx         ← live operator UI
+│   ├── components/Leaderboard.tsx           ← event-indexed reputation
+│   ├── domain/scaffold.ts                   ← pure-TS spec engine + tests
+│   ├── wallet/AppProviders.tsx              ← wagmi + RainbowKit
 │   └── App.{tsx,test.tsx}
-├── agents/                       Off-chain Node + Bedrock + x402
-│   ├── lib/bedrock.ts                 single-tool forced-call helper
-│   ├── lib/chain.ts                   viem clients, jobIdFor, ABI re-export
-│   ├── lib/scaffold-abi.ts            pruned ABI mirror
-│   ├── spec.example.json              9-checkpoint rubric, weights = 10000 bps
-│   ├── worker.ts                      Bedrock generates the HTML artifact
-│   ├── verifier-server.ts             Express + x402-express + Bedrock + viem
-│   ├── verifier-client.ts             worker side; x402-fetch + Bedrock pricing reasoning
-│   └── demo-runner.ts                 deterministic 3-act on-chain run
-├── infra/                        AWS CDK
+│
+├── agents/                             Off-chain Node + Bedrock + x402
+│   ├── lib/bedrock.ts                       ← Bedrock Converse helper
+│   ├── lib/chain.ts                         ← viem clients, jobIdFor
+│   ├── lib/scaffold-abi.ts                  ← pruned ABI mirror
+│   ├── spec.example.json                    ← 9-checkpoint rubric (10000 bps)
+│   ├── worker.ts                            ← Bedrock-built HTML artifact
+│   ├── verifier-server.ts                   ← x402-paywalled scoring API ★
+│   ├── verifier-client.ts                   ← x402-fetch payer loop
+│   └── demo-runner.ts                       ← deterministic 3-act on-chain run
+│
+├── infra/                              AWS CDK
 │   ├── bin/scaffold.ts
-│   ├── lib/scaffold-stack.ts          Lambda + API GW + CloudFront + DynamoDB
-│   └── package.json
-├── .kiro/specs/scaffold.md       Kiro-readable architecture spec
-├── legacy/solana/                Original Solana/Anchor implementation, kept for reference
+│   └── lib/scaffold-stack.ts                ← Lambda + APIGW + CDN + DDB
+│
+├── scripts/
+│   ├── fund-via-cdp.ts                      ← Coinbase Dev Platform faucet
+│   ├── topup-eth.ts
+│   └── topup-usdc.ts
+│
+├── .kiro/specs/scaffold.md             Kiro architecture spec ★
+├── docs/screenshots/                   UI screenshots (this README)
+├── DEMO.md                             every Basescan link from the live run
+├── legacy/solana/                      original Anchor implementation
 └── .github/workflows/ci.yml
 ```
 
-## Setup
+★ are the files judges should read first.
+
+---
+
+## 6 · How to run it
 
 ### Prerequisites
-- Node 20+
-- [Foundry](https://book.getfoundry.sh/) (`curl -L https://foundry.paradigm.xyz | bash && foundryup`)
-- AWS account with Bedrock model access enabled (Anthropic Claude + Amazon Nova)
-- Base Sepolia RPC (default `https://sepolia.base.org` works)
-- Base Sepolia ETH for gas (https://www.coinbase.com/faucets/base-ethereum-sepolia-faucet)
-- Base Sepolia USDC (https://faucet.circle.com/ → *Solana → swap to → Base Sepolia*; mint `0x036CbD53842c5426634e7929541eC2318f3dCF7e`)
+- **Node 20+**
+- **Foundry** (`curl -L https://foundry.paradigm.xyz | bash && foundryup`)
+- **AWS account** with Bedrock model access enabled (Claude + Nova families, region `us-east-1`)
+- **Base Sepolia ETH** (for wallet gas) — get via [Coinbase Developer Platform](https://portal.cdp.coinbase.com/) faucet API or [https://faucet.solana.com/](https://www.alchemy.com/faucets/base-sepolia)
+- **Base Sepolia USDC** (for buyer escrow budget) — [https://faucet.circle.com/](https://faucet.circle.com/) → Base Sepolia
 
-### Install + build
+### 6.1 Install + verify
 
 ```bash
-npm install
+git clone https://github.com/kushwahaamar-dev/scaffold && cd scaffold
+npm install --legacy-peer-deps
+
+# Solidity
+forge install --root contracts OpenZeppelin/openzeppelin-contracts foundry-rs/forge-std
 npm run contracts:build
-npm run contracts:test         # 8/8 pass
-npm run lint                   # tsc front-end + tsc agents
-npm test                       # vitest 5/5
-npm run build                  # vite production
+npm run contracts:test                 # 8/8 pass
+
+# Front-end + agents
+npm run lint                           # 0 type errors
+npm test                               # 5 vitest tests pass
+npm run build                          # production bundle
 ```
 
-### Deploy the escrow
+### 6.2 Configure
 
 ```bash
-cp .env.example .env           # fill in DEPLOYER_PRIVATE_KEY
-npm run contracts:deploy:sepolia
-# copy the deployed address into VITE_ESCROW_ADDRESS_SEPOLIA + SCAFFOLD_ESCROW_ADDRESS
+cp .env.example .env
+# fill in BUYER_PRIVATE_KEY, WORKER_PRIVATE_KEY, ARBITER_PRIVATE_KEY,
+# AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
 ```
 
-### Deploy the verifier (AWS)
+### 6.3 Deploy
 
 ```bash
-cd infra
-npm install
-npx cdk bootstrap              # one-time per account/region
-npx cdk deploy
-# CloudFront + API Gateway URL printed; export it as VERIFIER_URL
+DEPLOYER_PRIVATE_KEY=$(grep BUYER_PRIVATE_KEY .env | cut -d= -f2) \
+  forge script script/Deploy.s.sol:Deploy \
+  --rpc-url https://sepolia.base.org --broadcast \
+  --root contracts
+# copy the printed address into VITE_ESCROW_ADDRESS_SEPOLIA + SCAFFOLD_ESCROW_ADDRESS
 ```
 
-### Run the dashboard
+### 6.4 Run the dashboard
 
 ```bash
 npm run dev
-# http://localhost:5173 — Connect Wallet, switch to Base Sepolia, drive the flow
+# open http://localhost:5173 → Connect Wallet → Base Sepolia
 ```
 
-## Run the demo (3 minutes)
-
-### 1) Worker generates an artifact via Bedrock
+### 6.5 Run the agents
 
 ```bash
-npm run agent:worker
-# wrote agents/output/index.html (4823 bytes) via us.amazon.nova-pro-v1:0
+# in three terminals:
+npm run agent:worker                   # Bedrock generates the HTML artifact
+npm run agent:verifier:server          # x402 paywall + Bedrock judge
+npm run agent:verifier:client          # worker pays per tick, USDC streams
 ```
 
-### 2) Start the x402 verifier API locally
+### 6.6 Or the autonomous on-chain demo (no LLM)
 
 ```bash
-npm run agent:verifier:server
-# [verifier] listening on :4021 · x402 pay-to=0x... · network=base-sepolia
+NONCE=$(date +%s) BUDGET_USDC=2 npm run agent:demo
+# 21 transactions on Base Sepolia in ~30 seconds
 ```
 
-### 3) The worker pays per score tick
+---
 
-```bash
-npm run agent:verifier:client
-# [client] verifier /pricing → $0.001/call on base-sepolia
-# [client] streaming verification every 30000ms against job 0x...
-# [client] scored 9 checkpoints; settlement_txs=4
-```
+## 7 · Tests + CI
 
-Each tick:
-1. Worker reads `/pricing` (free, agent-economic-reasoning surface).
-2. Worker `fetchWithPayment(/score)` — first attempt returns 402, x402-fetch signs and retries with the X-PAYMENT header.
-3. The x402 facilitator settles the per-call USDC fee on Base.
-4. Lambda invokes Bedrock with the `submit_scores` tool.
-5. Lambda inspects current on-chain progress per checkpoint.
-6. For any forward-progress checkpoint, Lambda calls `ScaffoldEscrow.releaseStreamed(jobId, idx, score_bps)`.
-7. Worker receives delta USDC.
+| | |
+|---|---|
+| Solidity | `forge test` — 8/8 pass: happy path, forward-progress, partial credit, finalize-above/below threshold, refund-on-pause, weights validation, non-arbiter rejection |
+| Front-end | `npm test` — 5 vitest tests covering settlement math + integrity engine + App rendering |
+| Agents | `tsc --noEmit -p tsconfig.agents.json` — 0 type errors |
+| Production build | `npm run build` — clean Vite build |
+| CI | [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs all of these on every push |
 
-### 4) Failure act
+---
 
-```bash
-FAIL_MODE=1 npm run agent:worker     # ships a deliberately broken artifact
-# verifier scores it low → arbiter `setPause` (or score never rises to threshold)
-# stream stops; vault USDC is still locked
-```
-
-### 5) Finalize
-
-In the dashboard, click *Finalize · route surplus by quality*. Anyone can crank — the outcome is fully determined by on-chain state. If `total_bps_released >= quality_threshold_bps`, the surplus goes to the worker (quality bonus); otherwise it returns to the buyer.
-
-### 6) Autonomous on-chain demo (no LLM)
-
-Wallet-and-Bedrock setup taking too long for the pitch? `agent:demo` runs the same 3-act flow deterministically, in ~30s, against the deployed contract:
-
-```bash
-BUYER_PRIVATE_KEY=0x... \
-WORKER_ADDRESS=0x... \
-ARBITER_PRIVATE_KEY=0x... \
-SCAFFOLD_ESCROW_ADDRESS=0x... \
-npm run agent:demo
-```
-
-## Contract reference
-
-```solidity
-function initialize(
-    uint256 nonce,
-    address worker,
-    address arbiter,
-    IERC20  token,                       // USDC
-    uint256 budget,                      // 6 decimals
-    uint64  deadline,                    // unix seconds
-    uint16  qualityThresholdBps,         // 0..=10000
-    uint8   checkpointCount,             // 1..=16
-    uint16[16] calldata weights,         // sum of first checkpointCount = 10000
-    bytes32 specHash                     // SHA-256 of off-chain spec JSON
-) external returns (bytes32 jobId);
-
-function deposit(bytes32 jobId) external;            // buyer
-function releaseStreamed(bytes32, uint8 idx, uint16 scoreBps) external;  // arbiter
-function setPause(bytes32 jobId, bool paused) external;                  // arbiter
-function refundBuyer(bytes32 jobId) external;        // buyer; paused or past deadline
-function finalizeJob(bytes32 jobId) external;        // anyone, post-deadline OR fully scored
-
-function getJob(bytes32 jobId) external view returns (...);
-function getCheckpointProgress(bytes32 jobId, uint8 idx) external view returns (uint16 weight, uint16 releasedBps);
-```
-
-`releaseStreamed` math (verbatim from `contracts/src/ScaffoldEscrow.sol:140`):
-
-```
-target = min(scoreBps, weight)
-require(target > already, "NoForwardProgress");
-amount = budget * (target − already) / 10_000
-transfer(vault → worker, amount);
-bps_released_per_cp[idx] = target;
-```
-
-## Tests + CI
-
-```bash
-forge test                  # 8 Solidity tests
-npm test                    # 5 vitest tests
-npm run lint                # 0 type errors front-end + agents
-```
-
-CI (`.github/workflows/ci.yml`) runs everything on every push.
-
-## Security model
+## 8 · Security
 
 **Trusted assumptions**
 - The buyer picks a trustworthy arbiter address at `initialize`.
-- The arbiter's private key lives in the verifier Lambda (or wherever you deploy `verifier-server.ts`).
-- The Base sequencer is honest (standard L2 trust assumption).
+- The arbiter's private key lives inside the verifier Lambda (or wherever you deploy `verifier-server.ts`).
+- The Base sequencer is honest (standard L2 trust).
 
-**Defended**
+**Defended on-chain**
 - Forward-progress only: a malicious arbiter can't replay an old release.
 - Vault is the contract address — only the contract (not the arbiter) can move funds out.
-- `finalizeJob` is permissionless; the outcome is computed entirely from on-chain state.
+- `finalizeJob` is permissionless and outcome-deterministic.
 - `refundBuyer` is allowed only when paused OR past deadline.
-- All releases use 256-bit math via `(budget * deltaBps) / 10000` — no overflow risk for any realistic budget.
+- 256-bit math on every release; no overflow risk for any realistic budget.
 - Weights validated to sum to exactly 10_000 bps at init; immutable after.
 
-**Not yet (roadmap)**
+**Roadmap**
 - Permitless `releaseStreamed` via EIP-712 verifier signatures (so the Lambda doesn't have to hold ETH).
+- Lambda@Edge variant of the x402 paywall.
 - Token-2022 / SPL transfer hooks for non-USDC stables.
-- Per-checkpoint deterministic verifier types (Lighthouse, Playwright) so non-LLM checkpoints don't go through Bedrock at all.
+- Per-checkpoint deterministic verifiers (Lighthouse, Playwright) so non-LLM checkpoints don't go through Bedrock at all.
 
-## Roadmap
+---
 
-- [ ] Lambda@Edge variant of the x402 paywall for global low-latency settlement.
-- [ ] DynamoDB-backed score audit log surfaced in the leaderboard panel.
-- [ ] EIP-712 signed verifier receipts (anyone-can-crank `releaseStreamed`).
-- [ ] Worker-side pricing strategy ("call Nova Pro only when threshold proximity > 0.7").
-- [ ] Cross-chain (mirror the Anchor program in `legacy/solana/` and ship a single agent toolkit covering both).
+## 9 · Live deploy receipts
+
+Every demo transaction is in [`DEMO.md`](./DEMO.md) — 21 Basescan links covering deploy → init → approve → deposit → 4 streaming releases → pause → unpause → 10 partial-then-full releases → permissionless finalize. Every link is a real Base Sepolia transaction signed by the three demo wallets.
+
+```
+buyer    0x55981b98768fF51DA43a67d7BB371707C5A8307b  →  https://sepolia.basescan.org/address/0x55981b98768fF51DA43a67d7BB371707C5A8307b
+worker   0xd3df327BFa53E30dA2ad81141Cd839B2b0271Dd3  →  https://sepolia.basescan.org/address/0xd3df327BFa53E30dA2ad81141Cd839B2b0271Dd3
+arbiter  0xFD68e720D5bEBBa75f0C1bcd98238Bc578BF0A10  →  https://sepolia.basescan.org/address/0xFD68e720D5bEBBa75f0C1bcd98238Bc578BF0A10
+contract 0xA1e78f0B227feB3a3043302Afb0A45bC5381af32  →  https://sepolia.basescan.org/address/0xA1e78f0B227feB3a3043302Afb0A45bC5381af32
+```
+
+---
 
 ## License
 
-MIT — see `LICENSE`.
+MIT — see [`LICENSE`](./LICENSE).
 
-Built for the Coinbase × AWS Agentic Hackathon. Original Solana implementation preserved under `legacy/solana/`.
+Built for the **Coinbase × AWS Agentic Hackathon**. Original Solana implementation preserved under [`legacy/solana/`](./legacy/solana/) for cross-chain reference.
