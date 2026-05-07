@@ -16,3 +16,4 @@ contracts/out/
 contracts/cache/
 contracts/broadcast/
 infra/cdk.out/
+docs/demo-video/raw-interactive/

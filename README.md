@@ -7,7 +7,8 @@
 
 | | |
 |---|---|
-| 🎬 **Live demo video** | [`docs/demo-video/scaffold-live-demo.mp4`](./docs/demo-video/scaffold-live-demo.mp4) — *24-second screen recording captured while [21 real Base Sepolia transactions](./DEMO.md) landed in real time. Job `0x6c81…2e84d` finalized live during the recording.* |
+| 🎬 **Interactive demo video** | [`docs/demo-video/scaffold-interactive-demo.mp4`](./docs/demo-video/scaffold-interactive-demo.mp4) — *1:20 recording with **visible UI interactions** (typing nonce / worker / arbiter, scrolling panels, hovering buttons) **while 21 real Base Sepolia transactions land in parallel** from `agent:demo`. Worker's lifetime USDC ticks up live on the leaderboard. Final job: [`0x3727…9506`](https://sepolia.basescan.org/address/0xA1e78f0B227feB3a3043302Afb0A45bC5381af32).* |
+| 🎬 Earlier silent capture | [`docs/demo-video/scaffold-live-demo.mp4`](./docs/demo-video/scaffold-live-demo.mp4) — 24s capture of the operator's actual Brave window during job `0x6c81…2e84d` |
 | 🎤 **Loom walkthrough** | [▶ Audio narration](https://www.loom.com/share/REPLACE-WITH-LOOM-ID) — *(3-minute Loom recorded over [`docs/demo-video/scaffold-walkthrough.mp4`](./docs/demo-video/scaffold-walkthrough.mp4) using [`docs/demo-video/SCRIPT.md`](./docs/demo-video/SCRIPT.md))* |
 | 🌐 **Live contract** | [`0xA1e78f0B227feB3a3043302Afb0A45bC5381af32`](https://sepolia.basescan.org/address/0xA1e78f0B227feB3a3043302Afb0A45bC5381af32) on Base Sepolia |
 | 🧾 **21 verified live txs** | see [`DEMO.md`](./DEMO.md) for every Basescan link |
@@ -29,7 +30,13 @@ Reputation = lifetime released USDC, indexed off `ReleaseStreamed` events.
 
 ## 2 · Demo video & screenshots
 
-### 🎬 Live demo recording (real on-chain transactions)
+### 🎬 Interactive demo recording (visible UI driving + real Base Sepolia txs)
+
+> **[`docs/demo-video/scaffold-interactive-demo.mp4`](./docs/demo-video/scaffold-interactive-demo.mp4)** (1:20, 1080p) — Playwright drives the dashboard with a visible cursor: typing nonce / worker / arbiter into the form, scrolling between panels, hovering action buttons. **Simultaneously**, [`scripts/record-interactive-demo.py`](./scripts/record-interactive-demo.py) launches `npm run agent:demo` so 21 real Base Sepolia transactions fire while the camera is rolling. The dashboard's wagmi hooks refetch on every block, so panel state changes mid-take.
+
+Final job: `0x37276e6340a2427464500cd1c22a63daf56d1404535df99f591de27d9be09506`. Worker's lifetime balance ticked up to **4.498 USDC** during this run.
+
+### 🎬 Earlier silent live recording
 
 > **[`docs/demo-video/scaffold-live-demo.mp4`](./docs/demo-video/scaffold-live-demo.mp4)** — 24-second screen capture of the actual operator's Brave browser **while 21 real Base Sepolia transactions land** in front of them. Job ID: `0x6c81c13c830e0355488a099420c344006331273bffb115db7301c0d3a332e84d`.
 
