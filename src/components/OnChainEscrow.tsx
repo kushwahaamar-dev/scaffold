@@ -57,7 +57,22 @@ export function OnChainEscrow({ onSession }: Props = {}) {
   const demoCpCount = getDemoCheckpointCount();
   const demoWeights = useMemo(() => getDemoCheckpointWeightsBasisPoints(), []);
 
-  const [nonce, setNonce] = useState('1');
+  // Watch-mode: when ?watchBuyer=0x...&watchNonce=N is in the URL, the dashboard
+  // reads chain state for that arbitrary buyer/nonce without needing a connected
+  // wallet. Used for live demos and recordings — judges can see panels populate
+  // from on-chain state alone.
+  const watchParams = useMemo(() => {
+    if (typeof window === 'undefined') return null;
+    const sp = new URLSearchParams(window.location.search);
+    const buyer = sp.get('watchBuyer');
+    const nonceStr = sp.get('watchNonce');
+    if (buyer && /^0x[0-9a-fA-F]{40}$/.test(buyer) && nonceStr) {
+      return { buyer: buyer as Address, nonce: nonceStr };
+    }
+    return null;
+  }, []);
+
+  const [nonce, setNonce] = useState(watchParams?.nonce ?? '1');
   const [budgetUsdc, setBudgetUsdc] = useState('25');
   const [workerStr, setWorkerStr] = useState('');
   const [arbiterStr, setArbiterStr] = useState('');
@@ -71,19 +86,20 @@ export function OnChainEscrow({ onSession }: Props = {}) {
 
   // Compute jobId off-chain (matches solidity keccak256(buyer, nonce))
   const jobId = useMemo<Hex | null>(() => {
-    if (!account.address) return null;
+    const buyerAddr: Address | undefined = watchParams?.buyer ?? account.address;
+    if (!buyerAddr) return null;
     const nonceBig = BigInt(nonce.trim() || '0');
-    const buyerBytes = toBytes(account.address);
+    const buyerBytes = toBytes(buyerAddr);
     const nonceHex = nonceBig.toString(16).padStart(64, '0');
     return keccak256(new Uint8Array([...buyerBytes, ...toBytes(`0x${nonceHex}`)])) as Hex;
-  }, [account.address, nonce]);
+  }, [account.address, nonce, watchParams]);
 
   const jobRead = useReadContract({
     address: escrowAddr ?? undefined,
     abi: SCAFFOLD_ESCROW_ABI,
     functionName: 'getJob',
     args: jobId ? [jobId] : undefined,
-    query: { enabled: !!jobId && !!escrowAddr },
+    query: { enabled: !!jobId && !!escrowAddr, refetchInterval: 4_000 },
   });
 
   const session = useMemo<EscrowSession>(() => {
@@ -110,27 +126,34 @@ export function OnChainEscrow({ onSession }: Props = {}) {
     };
   }, [jobRead.data, jobId, demoWeights]);
 
-  // Fetch per-checkpoint progress when the job exists.
+  // Fetch per-checkpoint progress when the job exists. Polls every 4s so the
+  // recording shows live updates as releaseStreamed events land.
   const [progress, setProgress] = useState<number[]>([]);
   useEffect(() => {
     if (!escrowAddr || !jobId || !session || !publicClient) return;
     let cancelled = false;
-    (async () => {
-      const cps = await Promise.all(
-        Array.from({ length: session.checkpointCount }, (_, i) =>
-          publicClient.readContract({
-            address: escrowAddr,
-            abi: SCAFFOLD_ESCROW_ABI,
-            functionName: 'getCheckpointProgress',
-            args: [jobId, i],
-          }) as Promise<readonly [number, number]>,
-        ),
-      );
-      if (!cancelled) {
-        setProgress(cps.map((c) => Number(c[1])));
+    const poll = async () => {
+      try {
+        const cps = await Promise.all(
+          Array.from({ length: session.checkpointCount }, (_, i) =>
+            publicClient.readContract({
+              address: escrowAddr,
+              abi: SCAFFOLD_ESCROW_ABI,
+              functionName: 'getCheckpointProgress',
+              args: [jobId, i],
+            }) as Promise<readonly [number, number]>,
+          ),
+        );
+        if (!cancelled) {
+          setProgress(cps.map((c) => Number(c[1])));
+        }
+      } catch {
+        // Transient RPC errors are fine — next tick will retry.
       }
-    })();
-    return () => { cancelled = true; };
+    };
+    void poll();
+    const id = setInterval(poll, 4_000);
+    return () => { cancelled = true; clearInterval(id); };
   }, [escrowAddr, jobId, session, publicClient]);
 
   // Push session up

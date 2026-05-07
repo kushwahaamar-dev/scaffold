@@ -76,7 +76,7 @@ export function Leaderboard() {
       }
     };
     void refresh();
-    const id = setInterval(refresh, 30_000);
+    const id = setInterval(refresh, 5_000);
     return () => { cancelled = true; clearInterval(id); };
   }, [chainId, publicClient]);
 

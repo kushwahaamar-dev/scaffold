@@ -1,19 +1,28 @@
 """
-SOTA live demo recording.
+SOTA live demo recording v2 — chain state visibly populates the dashboard.
 
 Plan:
-  · Playwright Chromium opens the dashboard (headed, visible window).
-  · Records video at 1920x1080 @ 25fps via Playwright's built-in.
-  · In parallel, runs `npm run agent:demo` so 21 real Base Sepolia
-    transactions fire while we drive the UI.
-  · The dashboard's wagmi hooks refetch on every block, so the user
-    sees the on-chain state move underneath the visible cursor.
+  · Pick a fresh nonce N for this run.
+  · Open localhost:5173?watchBuyer=<buyer>&watchNonce=N in headed Playwright.
+    The dashboard's OnChainEscrow component reads the URL params and treats
+    that buyer/nonce as the "connected" identity for chain reads. No wallet
+    needed — getJob() and getCheckpointProgress() just work.
+  · Scroll to the on-chain panels FIRST so they're framed before the agent
+    starts firing.
+  · Spawn `npm run agent:demo` with the same nonce. As each tx confirms,
+    the dashboard's polling picks it up:
+       - Hero ledger amount ticks up: $0 → $0.10 → $0.18 → ... → $1.00
+       - Chain state card: Deposited yes, Paused yes/no, Released X
+       - Score-checkpoint card: each "PAID" tag appears as cp ramps to weight
+       - Leaderboard: worker row updates with new lifetime USDC
+  · Recording captures all of it.
 
 Output: docs/demo-video/scaffold-interactive-demo.mp4
 """
 import os
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 from playwright.sync_api import sync_playwright
@@ -25,9 +34,14 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 shutil.rmtree(RAW_DIR, ignore_errors=True)
 RAW_DIR.mkdir()
 
-NONCE = str(int(time.time()))
+BUYER = "0x55981b98768fF51DA43a67d7BB371707C5A8307b"
 WORKER = "0xd3df327BFa53E30dA2ad81141Cd839B2b0271Dd3"
 ARBITER = "0xFD68e720D5bEBBa75f0C1bcd98238Bc578BF0A10"
+NONCE = str(int(time.time()))
+
+WATCH_URL = (
+    f"http://localhost:5173?watchBuyer={BUYER}&watchNonce={NONCE}"
+)
 
 
 def smooth_scroll_to(page, y, steps=24, delay_ms=35):
@@ -64,9 +78,8 @@ def hover(page, selector, hold_ms=900):
 
 
 def main():
-    print(f"[demo] generated NONCE = {NONCE}")
-    print(f"[demo] worker  {WORKER}")
-    print(f"[demo] arbiter {ARBITER}")
+    print(f"[demo] NONCE = {NONCE}")
+    print(f"[demo] watch URL = {WATCH_URL}")
     print()
 
     with sync_playwright() as p:
@@ -79,73 +92,36 @@ def main():
         )
         page = context.new_page()
 
-        # Scene 0 — open dashboard
-        page.goto("http://localhost:5173", wait_until="networkidle", timeout=30000)
-        page.wait_for_timeout(2500)
+        # ── Open in watch mode (no wallet required) ──────────────────────
+        page.goto(WATCH_URL, wait_until="networkidle", timeout=30000)
+        page.wait_for_timeout(2000)
 
-        # ── Scene 1 — hero + ledger ──────────────────────────────────────
+        # ── Scene 1 — hero ───────────────────────────────────────────────
         print("scene 1 — hero")
-        hover(page, ".brand-name", hold_ms=1500)
-        hover(page, ".title", hold_ms=2200)
-        hover(page, ".subtitle", hold_ms=2500)
+        hover(page, ".brand-name", hold_ms=1200)
+        hover(page, ".title", hold_ms=2000)
+        hover(page, ".subtitle", hold_ms=2000)
 
-        smooth_scroll_to(page, 480)
-        page.wait_for_timeout(1200)
-        hover(page, ".ledger-card .amount", hold_ms=1800)
-        hover(page, ".ledger-grid > *:nth-child(1)", hold_ms=900)
-        hover(page, ".ledger-grid > *:nth-child(2)", hold_ms=900)
-        hover(page, ".ledger-grid > *:nth-child(3)", hold_ms=900)
-
-        # ── Scene 2 — checkpoint board ───────────────────────────────────
+        # ── Scene 2 — checkpoint board (briefly) ─────────────────────────
         print("scene 2 — checkpoint board")
         smooth_scroll_to(page, 1100)
-        page.wait_for_timeout(900)
-        hover(page, ".board .section-title", hold_ms=1500)
-        for i in range(1, 6):
-            hover(page, f".checkpoint-grid > *:nth-child({i})", hold_ms=550)
-
-        # ── Scene 3 — escrow controls (parameters card) ─────────────────
-        print("scene 3 — escrow parameters card")
-        smooth_scroll_to(page, 2000)
-        page.wait_for_timeout(1000)
-        hover(page, ".chain-section .chain-title", hold_ms=1500)
-        hover(page, ".chain-meta a:first-of-type", hold_ms=900)
-
-        # Type into the form so the operator sees deliberate input
-        first_card = page.locator(".chain-card").nth(0)
-        nonce = first_card.locator("input").nth(0)
-        nonce.click()
-        nonce.fill("")
-        nonce.type(NONCE, delay=70)
-        page.wait_for_timeout(600)
-
-        budget = first_card.locator("input").nth(1)
-        budget.click()
-        budget.fill("")
-        budget.type("1", delay=120)
-        page.wait_for_timeout(600)
-
-        worker_input = first_card.locator("input").nth(2)
-        worker_input.click()
-        worker_input.fill("")
-        worker_input.type(WORKER, delay=15)
         page.wait_for_timeout(800)
+        hover(page, ".board .section-title", hold_ms=1500)
+        for i in range(1, 5):
+            hover(page, f".checkpoint-grid > *:nth-child({i})", hold_ms=400)
 
-        arbiter_input = first_card.locator("input").nth(3)
-        arbiter_input.click()
-        arbiter_input.fill("")
-        arbiter_input.type(ARBITER, delay=15)
-        page.wait_for_timeout(1000)
+        # ── Scene 3 — POSITION on chain-state card BEFORE firing agent ──
+        print("scene 3 — position on chain-state card")
+        smooth_scroll_to(page, 2300)
+        page.wait_for_timeout(1500)
+        hover(page, ".chain-section .chain-title", hold_ms=1500)
 
-        # Highlight the Initialize button visually (do not click — agent fires from Node)
-        hover(page, ".chain-card:nth-of-type(1) .primary-btn", hold_ms=1500)
-
-        # ── Scene 4 — KICK OFF agent:demo (parallel real txs) ───────────
-        print("scene 4 — launching agent:demo in parallel")
+        # ── Scene 4 — kick off agent:demo ───────────────────────────────
+        print("scene 4 — launching agent:demo")
         env = os.environ.copy()
         env["NONCE"] = NONCE
         env["BUDGET_USDC"] = "1"
-        agent_log = open(REPO / "/tmp/agent-demo.log", "w") if False else None
+        agent_log_path = REPO / "/tmp/agent-demo-watch.log"
         agent_proc = subprocess.Popen(
             ["npm", "run", "agent:demo"],
             cwd=str(REPO),
@@ -155,62 +131,69 @@ def main():
             text=True,
             bufsize=1,
         )
-        # Watch the agent in a thread; print to console so I can see progress
-        import threading
+
+        agent_state = {"finished": False}
 
         def stream_agent():
             for line in agent_proc.stdout:  # type: ignore[union-attr]
-                # Surface the bullet lines so the recording side knows what's happening
                 if line.startswith("  · ") or line.startswith("[demo]"):
                     print(f"    AGENT: {line.rstrip()}")
+            agent_state["finished"] = True
 
         threading.Thread(target=stream_agent, daemon=True).start()
 
-        # Now scroll to the chain-state card so the recording shows
-        # "no job at this buyer + nonce yet" → populated state
-        smooth_scroll_to(page, 2350)
-        page.wait_for_timeout(2500)
-        hover(page, ".chain-card:nth-of-type(2) .chain-card-title", hold_ms=1500)
+        # Loop: hover the chain-state card while the first 3 txs (init+approve+
+        # deposit) confirm. ~15s.
+        for i in range(20):
+            hover(page, ".chain-card:nth-of-type(2) .chain-card-title", hold_ms=300)
+            hover(page, ".chain-state-list", hold_ms=400) if page.locator(".chain-state-list").count() else None
+            page.wait_for_timeout(150)
 
-        # Spend ~3 seconds on the chain-state card while agent does init + deposit
-        for _ in range(8):
-            page.wait_for_timeout(500)
-
-        # ── Scene 5 — score-by-checkpoint card (live updates) ───────────
-        print("scene 5 — score by checkpoint")
+        # ── Scene 5 — score checkpoints (this is where the panels move) ──
+        print("scene 5 — score-by-checkpoint card (live updates)")
         smooth_scroll_to(page, 2900)
+        page.wait_for_timeout(800)
+        hover(page, ".chain-card--wide .chain-card-title", hold_ms=1500)
+
+        # Hover each checkpoint row in a loop. While we're doing this,
+        # releaseStreamed txs land and the "PAID" tags appear in the UI.
+        for round_idx in range(3):
+            for i in range(1, 10):
+                hover(page, f".release-grid > *:nth-child({i})", hold_ms=240)
+
+        # ── Scene 6 — back to hero (ledger ticking) ──────────────────────
+        print("scene 6 — hero ledger should now show populated state")
+        smooth_scroll_to(page, 0, steps=30)
         page.wait_for_timeout(1500)
-        hover(page, ".chain-card--wide .chain-card-title", hold_ms=2000)
+        hover(page, ".ledger-card .amount", hold_ms=2500)
+        hover(page, ".ledger-grid > *:nth-child(1)", hold_ms=900)
+        hover(page, ".ledger-grid > *:nth-child(2)", hold_ms=900)
+        hover(page, ".ledger-grid > *:nth-child(3)", hold_ms=900)
+        hover(page, ".progress-block", hold_ms=2000)
 
-        # Linger so several releaseStreamed txs land while we watch
-        for i in range(1, 6):
-            hover(page, f".release-grid > *:nth-child({i}) .small-btn", hold_ms=900)
-
-        # ── Scene 6 — leaderboard ─────────────────────────────────────────
-        print("scene 6 — leaderboard")
+        # ── Scene 7 — leaderboard ────────────────────────────────────────
+        print("scene 7 — leaderboard")
         smooth_scroll_to(page, 3700)
-        page.wait_for_timeout(1500)
-        hover(page, '[aria-label="Worker leaderboard"] .chain-title', hold_ms=2200)
-        hover(page, '[aria-label="Worker leaderboard"] .chain-lede', hold_ms=2500)
+        page.wait_for_timeout(2000)
+        hover(page, '[aria-label="Worker leaderboard"] .chain-title', hold_ms=2000)
 
-        # Wait for the agent to finish so the leaderboard tick lands on camera
-        print("  waiting for agent:demo to finish...")
+        # Wait for agent to finish so the final ledger total + finalize lands
+        print("  waiting for agent to finish...")
         try:
-            agent_proc.wait(timeout=120)
+            agent_proc.wait(timeout=180)
         except subprocess.TimeoutExpired:
-            print("  agent timed out, killing")
             agent_proc.kill()
             agent_proc.wait()
-        page.wait_for_timeout(4000)  # leaderboard refresh interval
+        print("  agent done")
+        page.wait_for_timeout(6000)  # let dashboard polls catch up
 
-        # Force a leaderboard refresh by reloading and scrolling back
-        print("scene 7 — closing shot (refresh + scroll to top)")
-        page.reload(wait_until="networkidle")
-        page.wait_for_timeout(3000)
-        smooth_scroll_to(page, 3700, steps=30)
-        page.wait_for_timeout(3500)
-        smooth_scroll_to(page, 0, steps=40)
+        # ── Scene 8 — closing pan over hero with final state ─────────────
+        print("scene 8 — closing pan")
+        smooth_scroll_to(page, 0, steps=40, delay_ms=50)
         page.wait_for_timeout(2500)
+        hover(page, ".ledger-card .amount", hold_ms=2200)
+        smooth_scroll_to(page, 2300, steps=30)
+        page.wait_for_timeout(2000)
 
         page.close()
         context.close()
