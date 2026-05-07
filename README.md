@@ -38,6 +38,27 @@ Full page: [`docs/screenshots/dashboard-full.png`](./docs/screenshots/dashboard-
 - Worker client: `x402-fetch` for paid requests to verifier
 - Infra: AWS CDK (Lambda, API Gateway, CloudFront, DynamoDB)
 
+### System diagram
+
+```text
+   ┌──────────────┐    POST /score (HTTP 402)        ┌────────────────────┐
+   │  Worker      │ ───────────────────────────────► │  AWS API Gateway   │
+   │  agent       │                                  │  → Lambda          │
+   │  (artifact)  │ ◄── 402 + accepts[USDC, base]    │  (verifier server) │
+   │              │ ─── X-PAYMENT header ──────────► │                    │
+   │              │ ◄── 200 {scores, txs}            │  · x402-express    │
+   └──────┬───────┘                                  │  · Bedrock runtime │
+          │                                          │  · viem write tx   │
+          │ x402 facilitator settles USDC            └─────────┬──────────┘
+          ▼                                                    │
+   ┌────────────────────────── Base Sepolia ───────────────────▼────────────┐
+   │  USDC (Circle)                     ScaffoldEscrow.sol                   │
+   │                                    · releaseStreamed(jobId, idx, bps)  │
+   │                                    · forward-progress only              │
+   │                                    · permissionless finalizeJob         │
+   └──────────────────────────────────────────────────────────────────────────┘
+```
+
 ### Core flow
 
 1. Buyer creates a job and deposits USDC into `ScaffoldEscrow`.
