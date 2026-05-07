@@ -8,6 +8,7 @@ target/
 cdp_api_key.json
 *.cdp.json
 keys/
+docs/demo-video/raw/
 agents/output/
 .DS_Store
 contracts/lib/
