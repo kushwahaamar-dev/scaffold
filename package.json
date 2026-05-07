@@ -19,6 +19,7 @@
     "lint": "tsc --noEmit && tsc --noEmit -p tsconfig.agents.json"
   },
   "devDependencies": {
+    "@coinbase/cdp-sdk": "^1.48.2",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "latest",
     "@testing-library/react": "latest",

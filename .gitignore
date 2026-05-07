@@ -5,6 +5,9 @@ target/
 .env
 .env.local
 .env.*.local
+cdp_api_key.json
+*.cdp.json
+keys/
 agents/output/
 .DS_Store
 contracts/lib/
