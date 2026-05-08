@@ -1,123 +1,206 @@
 # Scaffold
 
-> Stripe for verified work. AI freelancers get paid on Base as quality improves.
+**USDC escrow for verifiable agent work on Base.**
 
-[![ci](https://github.com/kushwahaamar-dev/scaffold/actions/workflows/ci.yml/badge.svg)](https://github.com/kushwahaamar-dev/scaffold/actions/workflows/ci.yml)
+[![CI](https://github.com/kushwahaamar-dev/scaffold/actions/workflows/ci.yml/badge.svg)](https://github.com/kushwahaamar-dev/scaffold/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![Base Sepolia](https://img.shields.io/badge/network-Base%20Sepolia-0052FF)](https://sepolia.basescan.org/)
 
-## What this project does
+Scaffold lets a buyer fund work once and release USDC as checkpoint quality improves. A paid verifier evaluates an authenticated artifact against a committed specification, converts normalized quality into budget-weighted progress, and submits forward-only settlement transactions to an escrow contract.
 
-Scaffold fixes a trust gap in AI freelancing. Buyers do not want to pay full amount before quality is proven, and workers do not want to wait forever to get paid.
+> [!IMPORTANT]
+> The current source includes accounting and verifier fixes that are not present in the historical Base Sepolia deployment linked below. See [Project status](#project-status) before relying on demo receipts.
 
-We solve this with a Base escrow contract that streams USDC as checkpoint quality improves. When x402 is configured, scoring runs through a paid verifier API and confirmed progress can settle on chain.
+## Features
 
-## Videos
+- Per-job USDC escrow with isolated accounting
+- Separate worker-payment and buyer-refund balances
+- Terminal refunds and forward-only checkpoint progress
+- Canonical, versioned specification commitments
+- Worker-signed artifact submissions bound to the job, chain and escrow
+- Deterministic checks for measurable requirements and labeled Bedrock opinions for subjective rubrics
+- x402-paid verification requests
+- Receipt-aware, idempotent settlement recovery
+- DynamoDB audit records in AWS and durable local records for development
+- React dashboard backed by contract balances and checkpoint weights
 
-- Video pitch: [https://youtu.be/HxLlB5UDCrc](https://youtu.be/HxLlB5UDCrc)
-- Interactive demo: [https://youtu.be/Cg65GQnaJUg](https://youtu.be/Cg65GQnaJUg)
+## How it works
 
-Local recordings are also in `docs/demo-video/`.
+```text
+Worker client
+  │
+  │  POST /score
+  │  signed job + spec + artifact commitment
+  ▼
+x402 verifier API
+  ├─ authenticates the worker submission
+  ├─ checks the on-chain specification commitment
+  ├─ runs measured checks and Bedrock opinion scoring
+  ├─ converts quality_bps to weighted progress
+  └─ records submitted, confirmed, failed or uncertain transactions
+  │
+  ▼
+ScaffoldEscrow on Base
+  ├─ releases forward-only USDC to the worker
+  ├─ isolates every job's funded budget
+  └─ finalizes payment or returns the remaining balance to the buyer
+```
 
-## Screenshots
+The settlement conversion is explicit:
 
-| | |
+```text
+weighted_progress_bps = floor(quality_bps × checkpoint_weight_bps / 10,000)
+```
+
+For example, 20% quality on a checkpoint worth 10% of the budget releases 2% of the total budget—not the checkpoint's full 10% allocation.
+
+## Architecture
+
+| Area | Technology |
 |---|---|
-| ![Hero](./docs/screenshots/01-hero.png) | Hero and wallet connection flow |
-| ![Checkpoint board](./docs/screenshots/02-checkpoint-board.png) | Checkpoint state board driven by on-chain reads |
-| ![Escrow controls](./docs/screenshots/03-escrow-controls.png) | On-chain controls for initialize, deposit, stream, pause, finalize |
-| ![Leaderboard](./docs/screenshots/04-leaderboard.png) | Worker reputation based on lifetime released USDC |
+| Escrow | Solidity, OpenZeppelin, Foundry |
+| Network | Base / Base Sepolia, USDC |
+| Dashboard | React, Vite, wagmi, viem, RainbowKit |
+| Verifier | Node.js, Express, AWS Bedrock |
+| Payments | x402 Express middleware and client |
+| Recovery | DynamoDB in AWS, atomic local JSON store in development |
+| Infrastructure | AWS CDK, Lambda, API Gateway, CloudFront |
 
-Full page: [`docs/screenshots/dashboard-full.png`](./docs/screenshots/dashboard-full.png)
-
-## Technical architecture
-
-### Stack
-
-- Smart contracts: Solidity + Foundry on Base Sepolia
-- Frontend: React + Vite + wagmi + viem + RainbowKit
-- Verifier API: Node + Express + `x402-express` + AWS Bedrock
-- Worker client: `x402-fetch` for paid requests to verifier
-- Infra template: AWS CDK (Lambda, API Gateway, CloudFront, DynamoDB)
-
-### System diagram
+## Repository layout
 
 ```text
-   ┌──────────────┐    POST /score (HTTP 402)        ┌────────────────────┐
-   │  Worker      │ ───────────────────────────────► │  AWS API Gateway   │
-   │  agent       │                                  │  → Lambda          │
-   │  (artifact)  │ ◄── 402 + accepts[USDC, base]    │  (verifier server) │
-   │              │ ─── X-PAYMENT header ──────────► │                    │
-   │              │ ◄── 200 {scores, txs}            │  · x402-express    │
-   └──────┬───────┘                                  │  · Bedrock runtime │
-          │                                          │  · viem write tx   │
-          │ x402 facilitator settles USDC            └─────────┬──────────┘
-          ▼                                                    │
-   ┌────────────────────────── Base Sepolia ───────────────────▼────────────┐
-   │  USDC                             ScaffoldEscrow.sol                   │
-   │                                    · releaseStreamed(jobId, idx, bps)  │
-   │                                    · forward-progress only              │
-   │                                    · permissionless finalizeJob         │
-   └──────────────────────────────────────────────────────────────────────────┘
+agents/      Worker, verifier, protocol validation and recovery logic
+contracts/   Solidity escrow, deployment scripts and Foundry tests
+docs/        Screenshots, recordings and demo notes
+infra/       AWS CDK stack
+legacy/      Archived Solana implementation
+scripts/     Funding and demo utilities
+src/         React dashboard and shared protocol/domain code
 ```
 
-### Core flow
+## Getting started
 
-1. Buyer creates a job and deposits USDC into `ScaffoldEscrow`.
-2. Worker submits artifact for evaluation.
-3. Verifier endpoint returns HTTP 402 if unpaid.
-4. Worker pays via x402 and retries.
-5. Deterministic checks measure objective requirements; Bedrock supplies explicitly labeled opinions for subjective rubrics.
-6. The verifier converts normalized quality into checkpoint-weighted progress, waits for successful receipts, and records recovery state in DynamoDB or a local audit file.
-7. Anyone can call `finalizeJob` after deadline or full scoring.
+### Prerequisites
 
-### Why sponsor tech matters
+- Node.js 20 or newer for local development
+- Foundry
+- A Base Sepolia RPC endpoint
+- Three test identities: buyer, worker and arbiter
+- AWS credentials and Bedrock model access for live model evaluation
+- Base Sepolia ETH and USDC for live settlement
 
-- x402 makes verifier calls natively payable per request.
-- Base makes repeated USDC settlement cheap and fast.
-- AWS Bedrock provides structured scoring that maps directly to checkpoint release logic.
-
-## Repository structure
-
-```text
-contracts/   Solidity escrow and tests
-src/         React dashboard
-agents/      Worker + verifier services
-infra/       AWS CDK deployment
-docs/        Demo media and screenshots
-```
-
-## Quick start
+### Install
 
 ```bash
 npm ci --legacy-peer-deps
 forge install --root contracts OpenZeppelin/openzeppelin-contracts foundry-rs/forge-std
-npm run contracts:build
-npm run contracts:test
-npm test
+```
+
+Copy the documented configuration and provide your own development values:
+
+```bash
+cp .env.example .env
+```
+
+Never commit private keys or AWS credentials.
+
+### Run the dashboard
+
+```bash
 npm run dev
 ```
 
-## Current guarantees and limits
+### Run the local agent flow
 
-- The current contract keeps worker payments and buyer refunds separate, makes refunds terminal, and prevents one job from spending another job's deposit.
-- Specifications use one canonical `scaffold-spec-v1` hash across the dashboard and agents. Worker signatures bind each artifact to its job, spec, chain and escrow.
-- The verifier is a trusted off-chain arbiter. Model opinions are not proofs; only checks labeled `measured` are deterministic code checks.
-- Paid settlement fails closed without x402 configuration. Confirmed, failed and uncertain transaction outcomes are stored for idempotent retry.
-- The AWS stack is a deployable template, not evidence of a currently running production service. Deployment still requires addresses, secrets, Bedrock access and x402 configuration.
-- The CDK template accepts the arbiter key as a NoEcho deployment parameter for reproducibility. A production deployment should replace that with Secrets Manager or KMS-backed signing.
-- The Base Sepolia address and receipts in `DEMO.md` are historical evidence from the May 7 prototype. Its immutable bytecode predates the accounting fixes in this repository.
-- `legacy/solana/` is archived reference code. The supported implementation is Base/Solidity.
+The deterministic contract demo creates a job and writes the exact committed specification to `agents/output/spec.committed.json`.
 
-## Contribution provenance
+```bash
+npm run agent:demo
+SPEC=agents/output/spec.committed.json npm run agent:worker
+npm run agent:verifier:server
+SPEC=agents/output/spec.committed.json npm run agent:verifier:client
+```
 
-This repository does not contain an evidence-backed split of Laksh Kumar's individual work versus team work. Do not attribute repository-wide implementation, transaction or test counts to him in a resume or interview until that ownership record is added separately.
+See [agents/README.md](./agents/README.md) for protocol, trust and retry details.
 
-For full demo receipts and transaction links, see [`DEMO.md`](./DEMO.md).
+## Testing
 
-## Submission links
+```bash
+npm run lint
+npm test
+npm run build
+npm run contracts:test
+```
 
-- BaseScan contract: [https://sepolia.basescan.org/address/0xA1e78f0B227feB3a3043302Afb0A45bC5381af32](https://sepolia.basescan.org/address/0xA1e78f0B227feB3a3043302Afb0A45bC5381af32)
-- Canva slides: [https://canva.link/nh4zk5ibbxukkrs](https://canva.link/nh4zk5ibbxukkrs)
+The automated suites cover:
+
+- cross-job escrow isolation and terminal refunds
+- separate payment/refund accounting
+- path-independent and tiny-budget rounding
+- fuzzed per-job outflow bounds
+- canonical specification hashing and worker authorization
+- invalid, incomplete and adversarial model output
+- normalized-quality conversion
+- altered artifact, rubric and cross-job replay rejection
+- confirmed, reverted, uncertain, duplicate and concurrent settlement paths
+- contract-derived dashboard balances and weights
+
+CI runs the frontend, agent and Foundry checks on every push and pull request.
+
+## AWS deployment
+
+The CDK stack bundles the Lambda handler and provisions API Gateway, CloudFront and a DynamoDB audit table. CloudFront uses an origin request policy that forwards the x402 payment header.
+
+```bash
+cd infra
+npm ci
+npm run synth
+npm run deploy -- \
+  --parameters EscrowAddress=0x... \
+  --parameters ArbiterPrivateKey=0x... \
+  --parameters X402PayTo=0x...
+```
+
+The deployment parameter is marked `NoEcho`, but a production deployment should replace direct arbiter-key injection with Secrets Manager, KMS or an external signer.
+
+## Security model
+
+- The contract enforces funded-budget isolation and forward-only payouts.
+- The worker authorizes the artifact submission; the arbiter authorizes the settlement transaction.
+- Bedrock is a trusted off-chain opinion source, not a cryptographic proof or deterministic oracle.
+- Checks labeled `measured` are implemented in code. Checks labeled `opinion` come from the configured model.
+- Artifact URL fetching is disabled. Inline artifacts are size-limited and treated as untrusted input.
+- Unknown transaction outcomes remain uncertain until reconciled; they are not reported as successful.
+
+This repository has not received a complete external security audit. Do not use it with production funds without an independent review.
+
+## Demo and project status
+
+- [Pitch video](https://youtu.be/HxLlB5UDCrc)
+- [Interactive demo](https://youtu.be/Cg65GQnaJUg)
+- [Historical transaction record](./DEMO.md)
+- [Base Sepolia historical contract](https://sepolia.basescan.org/address/0xA1e78f0B227feB3a3043302Afb0A45bC5381af32)
+
+### Screenshots
+
+| Dashboard | Escrow controls |
+|---|---|
+| ![Scaffold dashboard](./docs/screenshots/01-hero.png) | ![Scaffold escrow controls](./docs/screenshots/03-escrow-controls.png) |
+
+### Project status
+
+- The linked Base Sepolia deployment and receipts are historical May 7 prototype evidence. The deployed bytecode predates the current accounting fixes.
+- The repository includes mocked agent/chain integration coverage and real Foundry contract coverage. It does not include a current live receipt tying an x402 fee, Bedrock evaluation and fixed-contract payout into one trace.
+- The AWS stack is a synthesized deployment template, not evidence of an active production endpoint.
+- `legacy/solana/` is archived; Base/Solidity is the supported implementation.
+- Individual contribution ownership is not recorded in the repository. Repository-wide implementation, transaction and test counts should not be attributed to one contributor without separate evidence.
+
+## Contributing
+
+Issues and pull requests are welcome. For money-moving changes, include regression tests, preserve per-job accounting invariants, and document any trust or deployment assumption that changes.
+
+Before opening a pull request, run the complete test sequence in [Testing](#testing).
 
 ## License
 
-MIT. See [`LICENSE`](./LICENSE).
+Released under the [MIT License](./LICENSE).
